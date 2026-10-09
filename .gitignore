@@ -1,0 +1,34 @@
+# .NET build output
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+
+# Flutter and Dart generated files
+**/.dart_tool/
+**/build/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/coverage/
+
+# IDE files
+**/.idea/
+**/*.iml
+
+# Machine-specific Android configuration
+**/android/local.properties
+
+# Operating system and generated caches
+Thumbs.db
+.DS_Store
+Microsoft/
+*.log
+
+# Local-only configuration and secrets
+**/appsettings.Local.json
+**/secrets.json
+
+# Local development configuration
+WayMark.Api/appsettings.Development.json
