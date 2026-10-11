@@ -4,6 +4,8 @@ import '../../../core/theme/app_colors.dart';
 import '../register/register_page.dart';
 import '../../home/home_page.dart';
 import '../../admin/dashboard_page.dart';
+import '../../../services/auth_api_service.dart';
+import '../../../services/auth_session.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -13,30 +15,70 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final _emailController = TextEditingController();
+  final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
+  bool _isLoading = false;
 
   @override
   void dispose() {
-    _emailController.dispose();
+    _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  void _login() {
-    final email = _emailController.text.trim();
+  Future<void> _login() async {
+    final username = _usernameController.text.trim();
     final password = _passwordController.text;
 
-    if (email.isEmpty || password.isEmpty) {
+    if (username.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập đầy đủ thông tin')),
+        const SnackBar(content: Text('Vui lòng nhập username và password.')),
       );
       return;
     }
 
-    Navigator.pushReplacement(
+    setState(() => _isLoading = true);
+
+    try {
+      await AuthApiService().login(username: username, password: password);
+
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const HomePage()),
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceFirst('Exception: ', '')),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _openRegister() async {
+    final registered = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => const HomePage()),
+      MaterialPageRoute<bool>(builder: (_) => const RegisterPage()),
+    );
+    if (!mounted || registered != true) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Đăng ký thành công. Hãy đăng nhập.')),
+    );
+  }
+
+  void _openAdminDemo() {
+    AuthSession.clear();
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(builder: (_) => const AdminDashboardPage()),
     );
   }
 
@@ -104,15 +146,15 @@ class _LoginPageState extends State<LoginPage> {
                       const SizedBox(height: 40),
 
                       // Email
-                      _buildLabel('Email'),
+                      _buildLabel('Tên đăng nhập'),
                       const SizedBox(height: 6),
 
                       TextField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
+                        controller: _usernameController,
+                        keyboardType: TextInputType.text,
                         decoration: InputDecoration(
-                          hintText: 'Nhập email của bạn',
-                          prefixIcon: const Icon(Icons.mail_outline),
+                          hintText: 'Nhập username của bạn',
+                          prefixIcon: const Icon(Icons.person_outline),
                           filled: true,
                           fillColor: AppColors.card,
                           border: OutlineInputBorder(
@@ -200,7 +242,7 @@ class _LoginPageState extends State<LoginPage> {
                         width: double.infinity,
                         height: 56,
                         child: ElevatedButton(
-                          onPressed: _login,
+                          onPressed: _isLoading ? null : _login,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primary,
                             foregroundColor: Colors.white,
@@ -209,13 +251,22 @@ class _LoginPageState extends State<LoginPage> {
                               borderRadius: BorderRadius.circular(16),
                             ),
                           ),
-                          child: const Text(
-                            'Đăng nhập',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text(
+                                  'Đăng nhập',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                         ),
                       ),
 
@@ -233,14 +284,8 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                           ),
                           GestureDetector(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const RegisterPage(),
-                                ),
-                              );
-                            },
+                            onTap: _openRegister,
+
                             child: const Text(
                               'Đăng ký ngay',
                               style: TextStyle(
@@ -260,6 +305,7 @@ class _LoginPageState extends State<LoginPage> {
               // Guest
               GestureDetector(
                 onTap: () {
+                  AuthSession.clear();
                   Navigator.pushReplacement(
                     context,
                     MaterialPageRoute<void>(builder: (_) => const HomePage()),
@@ -277,14 +323,10 @@ class _LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(height: 12),
               TextButton.icon(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const AdminDashboardPage(),
-                  ),
-                ),
+                onPressed: _openAdminDemo,
+
                 icon: const Icon(Icons.admin_panel_settings_outlined),
-                label: const Text('Mở khu vực quản trị (demo)'),
+                label: const Text('Xem giao diện Admin demo (chưa đăng nhập)'),
               ),
             ],
           ),

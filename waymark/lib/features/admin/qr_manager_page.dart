@@ -63,10 +63,10 @@ class _AdminQrManagerPageState extends State<AdminQrManagerPage> {
         _wayMarks = wayMarks;
         _isLoading = false;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
-        _loadError = 'Không thể tải danh sách WayMark. Hãy kiểm tra kết nối API rồi thử lại.';
+        _loadError = error is WayMarkApiException ? error.message : 'Không thể tải danh sách WayMark. Hãy kiểm tra kết nối API rồi thử lại.';
         _isLoading = false;
       });
     }

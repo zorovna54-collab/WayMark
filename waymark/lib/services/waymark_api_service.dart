@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import 'auth_session.dart';
+
 class WayMarkApiException implements Exception {
   const WayMarkApiException(this.message, {this.statusCode});
 
@@ -52,7 +54,7 @@ class WayMarkApiService {
     late final http.Response response;
     try {
       response = await http
-          .get(Uri.parse('$baseUrl/WayMarks'))
+          .get(Uri.parse('$baseUrl/WayMarks'), headers: _headers())
           .timeout(_requestTimeout);
     } on Exception catch (error) {
       throw Exception(
@@ -61,9 +63,7 @@ class WayMarkApiService {
       );
     }
 
-    if (response.statusCode != 200) {
-      throw Exception('WayMark API trả về HTTP ${response.statusCode}.');
-    }
+    if (response.statusCode != 200) throw _httpError(response);
 
     try {
       final decoded = jsonDecode(response.body);
@@ -88,19 +88,19 @@ class WayMarkApiService {
     late final http.Response response;
     try {
       response = await http
-          .get(Uri.parse('$baseUrl/WayMarks/code/$encodedCode'))
+          .get(
+            Uri.parse('$baseUrl/WayMarks/code/$encodedCode'),
+            headers: _headers(),
+          )
           .timeout(_requestTimeout);
     } on Exception catch (error) {
       throw Exception(
-        'Không thể kết nối WayMark API tại $baseUrl. '
-        'Chi tiết: $error',
+        'Không thể kết nối WayMark API tại $baseUrl. Chi tiết: $error',
       );
     }
 
     if (response.statusCode == 404) return null;
-    if (response.statusCode != 200) {
-      throw Exception('WayMark API trả về HTTP ${response.statusCode}.');
-    }
+    if (response.statusCode != 200) throw _httpError(response);
 
     try {
       final decoded = jsonDecode(response.body);
@@ -121,7 +121,7 @@ class WayMarkApiService {
     final response = await _sendCrudRequest(
       () => http.post(
         Uri.parse('$baseUrl/WayMarks'),
-        headers: const {'Content-Type': 'application/json'},
+        headers: _headers(json: true),
         body: jsonEncode(_wayMarkBody(name, location, wayMarkCode)),
       ),
     );
@@ -137,7 +137,7 @@ class WayMarkApiService {
     final response = await _sendCrudRequest(
       () => http.put(
         Uri.parse('$baseUrl/WayMarks/$id'),
-        headers: const {'Content-Type': 'application/json'},
+        headers: _headers(json: true),
         body: jsonEncode(_wayMarkBody(name, location, wayMarkCode)),
       ),
     );
@@ -146,7 +146,8 @@ class WayMarkApiService {
 
   Future<void> deleteWayMark(int id) async {
     final response = await _sendCrudRequest(
-      () => http.delete(Uri.parse('$baseUrl/WayMarks/$id')),
+      () =>
+          http.delete(Uri.parse('$baseUrl/WayMarks/$id'), headers: _headers()),
     );
     _ensureCrudSuccess(response, const {200, 204});
   }
@@ -160,6 +161,17 @@ class WayMarkApiService {
     'Location': location.trim(),
     'WayMarkCode': wayMarkCode.trim(),
   };
+
+  Map<String, String> _headers({bool json = false}) {
+    final headers = <String, String>{};
+    if (json) headers['Content-Type'] = 'application/json';
+
+    final token = AuthSession.accessToken;
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+    return headers;
+  }
 
   Future<http.Response> _sendCrudRequest(
     Future<http.Response> Function() request,
@@ -176,13 +188,18 @@ class WayMarkApiService {
 
   void _ensureCrudSuccess(http.Response response, Set<int> acceptedStatuses) {
     if (acceptedStatuses.contains(response.statusCode)) return;
+    throw _httpError(response);
+  }
 
+  WayMarkApiException _httpError(http.Response response) {
     final message = switch (response.statusCode) {
       400 => 'Dữ liệu không hợp lệ. Tên tối đa 200, vị trí 300 và mã WayMark 100 ký tự.',
       404 => 'WayMark không tồn tại hoặc đã bị xóa.',
       409 => 'Mã WayMark đã tồn tại. Hãy chọn mã khác.',
+      401 => 'Bạn cần đăng nhập để truy cập dữ liệu WayMark.',
+      403 => 'Tài khoản không có quyền truy cập thao tác này.',
       _ => 'WayMark API trả về lỗi HTTP ${response.statusCode}.',
     };
-    throw WayMarkApiException(message, statusCode: response.statusCode);
+    return WayMarkApiException(message, statusCode: response.statusCode);
   }
 }
