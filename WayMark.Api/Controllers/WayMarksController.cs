@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using WayMark.Api.Data;
 using WayMarkEntity = global::WayMark.Api.Models.WayMark;
 using Microsoft.AspNetCore.Authorization;
+using WayMark.Api.Contracts;
 
 namespace WayMark.Api.Controllers;
 
@@ -50,6 +51,29 @@ public class WayMarksController(WayMarkDbContext dbContext) : ControllerBase
         }
 
         return wayMark;
+    }
+
+    [HttpGet("code/{code}/map-location")]
+    public async Task<ActionResult<WayMarkMapDto>> GetMapLocation(
+        string code, CancellationToken cancellationToken)
+    {
+        var wayMark = await dbContext.WayMarks.AsNoTracking()
+            .SingleOrDefaultAsync(item => item.WayMarkCode == code, cancellationToken);
+        if (wayMark is null)
+        {
+            return NotFound(new ProblemDetails { Status = 404, Title = "WayMark not found" });
+        }
+
+        var node = wayMark.NavigationNodeId is int nodeId
+            ? await dbContext.NavigationNodes.AsNoTracking()
+                .Where(item => item.Id == nodeId)
+                .Select(item => new NavigationNodeDto(item.Id, item.FloorId,
+                    item.NodeCode, item.Name, item.X, item.Y, item.NodeType.ToString()))
+                .SingleOrDefaultAsync(cancellationToken)
+            : null;
+
+        return Ok(new WayMarkMapDto(wayMark.Id, wayMark.Name, wayMark.Location,
+            wayMark.WayMarkCode, node));
     }
 
     [HttpPost]
