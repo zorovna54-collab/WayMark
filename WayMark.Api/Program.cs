@@ -80,11 +80,13 @@ builder.Services.AddCors(options => options.AddPolicy("Development", policy =>
         .AllowAnyHeader()));
 builder.Services.AddDbContext<WayMarkDbContext>(options =>
     options.UseSqlServer(
-        builder.Configuration.GetConnectionString("WayMarkDatabase")));
+        builder.Configuration.GetConnectionString("WayMarkDatabase"),
+        sqlServer => sqlServer.MigrationsHistoryTable("__EFMigrationsHistory")));
 
 builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseSqlServer(
-        builder.Configuration.GetConnectionString("WayMarkAuthDatabase")));
+        builder.Configuration.GetConnectionString("WayMarkDatabase"),
+        sqlServer => sqlServer.MigrationsHistoryTable("__AuthMigrationsHistory")));
 builder.Services
     .AddIdentityCore<IdentityUser>(options =>
     {

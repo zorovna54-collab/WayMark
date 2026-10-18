@@ -17,4 +17,6 @@ public class WayMark
     [Required]
     [StringLength(100)]
     public string WayMarkCode { get; set; } = string.Empty;
+
+    public int? NavigationNodeId { get; set; }
 }

@@ -1,9 +1,26 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../services/waymark_api_service.dart';
 import '../route/route_preview_page.dart';
+
+/// WayMarkCode has no narrower format constraint in the API model.
+/// Keep its server contract: a trimmed, non-empty value of at most 100
+/// characters, excluding control characters that cannot be useful as a code.
+String? normalizeWayMarkQrCode(String? rawValue) {
+  final code = rawValue?.trim();
+  if (code == null ||
+      code.isEmpty ||
+      code.length > 100 ||
+      RegExp(r'[\x00-\x1F\x7F]').hasMatch(code)) {
+    return null;
+  }
+  return code;
+}
 
 class ScannerPage extends StatefulWidget {
   const ScannerPage({super.key});
@@ -12,36 +29,103 @@ class ScannerPage extends StatefulWidget {
   State<ScannerPage> createState() => _ScannerPageState();
 }
 
-class _ScannerPageState extends State<ScannerPage> {
+class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   final MobileScannerController _cameraController = MobileScannerController(
     formats: const [BarcodeFormat.qrCode],
   );
 
   bool _lookupStarted = false;
   bool _isLoading = false;
+  bool _cameraStarting = true;
   WayMark? _wayMark;
   String? _scannedCode;
   String? _message;
   bool _notFound = false;
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _cameraController.addListener(_onCameraStateChanged);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        unawaited(_stopCameraForLifecycle());
+      case AppLifecycleState.resumed:
+        if (!_lookupStarted) unawaited(_startCameraIfNeeded());
+    }
+  }
+
+  Future<void> _stopCameraForLifecycle() async {
+    try {
+      if (_cameraController.value.isRunning) {
+        await _cameraController.stop();
+      }
+    } on Exception {
+      // The platform may already have stopped the camera while backgrounding.
+    }
+  }
+
+  Future<void> _startCameraIfNeeded() async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted ||
+        _lookupStarted ||
+        _cameraController.value.isRunning ||
+        _cameraController.value.isStarting) {
+      return;
+    }
+    try {
+      await _cameraController.start();
+    } on Exception {
+      // MobileScanner exposes startup failures through its error builder.
+    }
+  }
+
+  void _onCameraStateChanged() {
+    if (!mounted) return;
+    final cameraState = _cameraController.value;
+    final isStarting = cameraState.isStarting ||
+        (!cameraState.isInitialized && cameraState.error == null);
+    if (_cameraStarting != isStarting) {
+      setState(() => _cameraStarting = isStarting);
+    }
+  }
+
   Future<void> _onDetect(BarcodeCapture capture) async {
-    if (_lookupStarted) return;
-    final code = capture.barcodes
-        .map((barcode) => barcode.rawValue?.trim())
+    if (_lookupStarted || !mounted) return;
+    final rawValue = capture.barcodes
+        .map((barcode) => barcode.rawValue)
         .whereType<String>()
-        .firstWhere((value) => value.isNotEmpty, orElse: () => '');
-    if (code.isEmpty) return;
+        .firstWhere((value) => value.trim().isNotEmpty, orElse: () => '');
+    if (rawValue.isEmpty) return;
 
     _lookupStarted = true;
     setState(() {
       _isLoading = true;
-      _scannedCode = code;
+      _scannedCode = rawValue.trim();
       _message = null;
       _notFound = false;
     });
-    await _cameraController.stop();
 
     try {
+      await _cameraController.stop();
+      final code = normalizeWayMarkQrCode(rawValue);
+      if (code == null) {
+        if (!mounted) return;
+        setState(() {
+          _message =
+              'QR không chứa mã WayMark hợp lệ. Mã phải có từ 1 đến 100 ký tự.';
+          _isLoading = false;
+        });
+        return;
+      }
+
       final wayMark = await WayMarkApiService().getWayMarkByCode(code);
       if (!mounted) return;
       setState(() {
@@ -61,15 +145,25 @@ class _ScannerPageState extends State<ScannerPage> {
   }
 
   Future<void> _scanAgain() async {
+    if (!mounted) return;
     setState(() {
       _lookupStarted = false;
       _isLoading = false;
+      _cameraStarting = true;
       _wayMark = null;
       _scannedCode = null;
       _message = null;
       _notFound = false;
     });
     try {
+      // The MobileScanner widget auto-starts when it is inserted again.
+      // If it stayed mounted after a camera error, restart it after the frame.
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted ||
+          _cameraController.value.isRunning ||
+          _cameraController.value.isStarting) {
+        return;
+      }
       await _cameraController.start();
     } catch (error) {
       if (!mounted) return;
@@ -97,6 +191,8 @@ class _ScannerPageState extends State<ScannerPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _cameraController.removeListener(_onCameraStateChanged);
     _cameraController.dispose();
     super.dispose();
   }
@@ -106,11 +202,45 @@ class _ScannerPageState extends State<ScannerPage> {
     final hasResult = _wayMark != null || _message != null;
     return Scaffold(
       backgroundColor: hasResult ? AppColors.background : Colors.black,
-      body: hasResult || _isLoading ? _buildResult() : _buildScanner(),
+      body: hasResult ? _buildResult() : _buildScanner(),
     );
   }
 
   Widget _buildScanner() {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+      return ColoredBox(
+        color: const Color(0xFF0F172A),
+        child: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.no_photography_outlined,
+                    color: Colors.white,
+                    size: 48,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Quét camera chưa được hỗ trợ trên ứng dụng Windows. Hãy mở WayMark bằng Android hoặc trình duyệt Web có quyền camera.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  const SizedBox(height: 16),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Quay lại'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -131,8 +261,15 @@ class _ScannerPageState extends State<ScannerPage> {
                       size: 48,
                     ),
                     const SizedBox(height: 16),
-                    const Text(
-                      'Camera không khả dụng. Hãy cấp quyền Camera cho WayMark trong Cài đặt Android rồi thử lại.',
+                    Text(
+                      switch (error.errorCode) {
+                        MobileScannerErrorCode.permissionDenied =>
+                          'Quyền camera đã bị từ chối. Hãy cấp quyền camera cho ứng dụng rồi thử lại.',
+                        MobileScannerErrorCode.unsupported =>
+                          'Thiết bị hoặc trình duyệt này không hỗ trợ camera.',
+                        _ =>
+                          'Không thể khởi tạo camera. Hãy kiểm tra quyền camera và thiết bị rồi thử lại.',
+                      },
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white),
                     ),
@@ -263,6 +400,25 @@ class _ScannerPageState extends State<ScannerPage> {
               ),
             ),
           ),
+        if (_cameraStarting && !_isLoading)
+          const ColoredBox(
+            color: Colors.black45,
+            child: Center(
+              child: Card(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 14),
+                      Text('Đang khởi tạo camera...'),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -347,7 +503,7 @@ class _ScannerPageState extends State<ScannerPage> {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              'WayMark ID: ${wayMark.wayMarkCode}',
+                              'Mã WayMark: ${wayMark.wayMarkCode}',
                               style: const TextStyle(
                                 color: AppColors.textSecondary,
                               ),
