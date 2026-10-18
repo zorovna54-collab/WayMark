@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../services/waymark_api_service.dart';
+import '../../models/route_models.dart';
+import '../scanner/scanner_page.dart';
 import '../route/route_preview_page.dart';
 
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key});
+  const SearchPage({super.key, this.start, this.api, this.initialQuery = ''});
+  final WayMarkMapLocation? start;
+  final WayMarkApiService? api;
+  final String initialQuery;
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -16,6 +21,10 @@ class _SearchPageState extends State<SearchPage> {
   List<WayMark> _wayMarks = const [];
   bool _isLoading = true;
   Object? _loadError;
+  late final WayMarkApiService _api = widget.api ?? WayMarkApiService();
+  late WayMarkMapLocation? _start = widget.start;
+  bool _accessibleOnly = false;
+  bool _openingRoute = false;
 
   List<WayMark> get _filteredWayMarks {
     final query = _searchController.text.trim().toLowerCase();
@@ -32,6 +41,7 @@ class _SearchPageState extends State<SearchPage> {
   @override
   void initState() {
     super.initState();
+    _searchController.text = widget.initialQuery;
     _searchController.addListener(_onSearchChanged);
     _loadWayMarks();
   }
@@ -42,7 +52,7 @@ class _SearchPageState extends State<SearchPage> {
       _loadError = null;
     });
     try {
-      final wayMarks = await WayMarkApiService().getWayMarks();
+      final wayMarks = await _api.getWayMarks();
       if (!mounted) return;
       setState(() {
         _wayMarks = wayMarks;
@@ -67,17 +77,37 @@ class _SearchPageState extends State<SearchPage> {
     super.dispose();
   }
 
-  void _selectWayMark(WayMark wayMark) {
-    Navigator.push(
+  Future<void> _chooseStart() async {
+    final start = await Navigator.push<WayMarkMapLocation>(
       context,
-      MaterialPageRoute<void>(
-        builder: (_) => RoutePreviewPage(
-          destination: wayMark.name,
-          location: wayMark.location,
-          wayMarkCode: wayMark.wayMarkCode,
-        ),
+      MaterialPageRoute<WayMarkMapLocation>(
+        builder: (_) => ScannerPage(api: _api, selectStartOnly: true),
       ),
     );
+    if (mounted && start != null) setState(() => _start = start);
+  }
+
+  Future<void> _selectWayMark(WayMark wayMark) async {
+    if (_openingRoute) return;
+    _openingRoute = true;
+    try {
+      if (_start == null) await _chooseStart();
+      if (!mounted || _start == null) return;
+      FocusScope.of(context).unfocus();
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => RoutePreviewPage(
+            startWayMarkCode: _start!.wayMarkCode,
+            destinationWayMarkCode: wayMark.wayMarkCode,
+            accessibleOnly: _accessibleOnly,
+            api: _api,
+          ),
+        ),
+      );
+    } finally {
+      _openingRoute = false;
+    }
   }
 
   @override
@@ -135,6 +165,28 @@ class _SearchPageState extends State<SearchPage> {
                   ),
                 ],
               ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.my_location, color: AppColors.accent),
+              title: Text(
+                _start == null
+                    ? 'Quét QR để chọn điểm xuất phát'
+                    : 'Từ: ${_start!.name}',
+              ),
+              subtitle: _start == null ? null : Text(_start!.wayMarkCode),
+              trailing: IconButton(
+                tooltip: 'Quét điểm xuất phát',
+                onPressed: _chooseStart,
+                icon: const Icon(Icons.qr_code_scanner),
+              ),
+            ),
+            SwitchListTile(
+              title: const Text('Chỉ dùng lối đi được đánh dấu accessible'),
+              subtitle: const Text(
+                'Theo dữ liệu quản trị; chưa bảo đảm phù hợp mọi xe lăn.',
+              ),
+              value: _accessibleOnly,
+              onChanged: (value) => setState(() => _accessibleOnly = value),
             ),
             Expanded(
               child: _isLoading

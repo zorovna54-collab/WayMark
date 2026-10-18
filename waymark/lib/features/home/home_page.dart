@@ -6,7 +6,6 @@ import '../scanner/scanner_page.dart';
 import '../search/search_page.dart';
 import '../auth/login/login_page.dart';
 import '../admin/settings_page.dart';
-import '../route/route_preview_page.dart';
 import '../../services/waymark_api_service.dart';
 
 class HomePage extends StatefulWidget {
@@ -436,11 +435,7 @@ class _HomePageState extends State<HomePage> {
               Navigator.push(
                 context,
                 MaterialPageRoute<void>(
-                  builder: (_) => RoutePreviewPage(
-                    destination: wayMark.name,
-                    location: wayMark.location,
-                    wayMarkCode: wayMark.wayMarkCode,
-                  ),
+                  builder: (_) => SearchPage(initialQuery: wayMark.wayMarkCode),
                 ),
               );
             },

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
-import '../route/route_preview_page.dart';
+import '../search/search_page.dart';
 
 class HistoryPage extends StatelessWidget {
   const HistoryPage({super.key});
@@ -196,7 +196,7 @@ class HistoryPage extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const RoutePreviewPage(),
+                      builder: (_) => const SearchPage(),
                     ),
                   );
                 },

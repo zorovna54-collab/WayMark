@@ -1,354 +1,287 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
-import '../navigation/navigation_page.dart';
+import '../../models/route_models.dart';
+import '../../services/waymark_api_service.dart';
+import '../auth/login/login_page.dart';
 
-class RoutePreviewPage extends StatelessWidget {
-  final String destination;
-  final String location;
-  final String distance;
-  final String wayMarkCode;
-
+class RoutePreviewPage extends StatefulWidget {
   const RoutePreviewPage({
     super.key,
-    this.destination = 'Khoa Ngoại Thần Kinh',
-    this.location = 'Tầng 4, Khu B',
-    this.distance = '120m',
-    this.wayMarkCode = '',
+    required this.startWayMarkCode,
+    required this.destinationWayMarkCode,
+    this.accessibleOnly = false,
+    this.api,
   });
+  final String startWayMarkCode, destinationWayMarkCode;
+  final bool accessibleOnly;
+  final WayMarkApiService? api;
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: Stack(
+  State<RoutePreviewPage> createState() => _RoutePreviewPageState();
+}
+
+class _RoutePreviewPageState extends State<RoutePreviewPage> {
+  late final WayMarkApiService _api = widget.api ?? WayMarkApiService();
+  late Future<WayMarkRoute> _route = _loadRoute();
+
+  Future<WayMarkRoute> _loadRoute() => _api.findRoute(
+    RouteRequest(
+      startWayMarkCode: widget.startWayMarkCode,
+      destinationWayMarkCode: widget.destinationWayMarkCode,
+    ),
+    accessibleOnly: widget.accessibleOnly,
+  );
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: const Color(0xFFE2E8F0),
+    body: SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // =========================
-          // FAKE MAP
-          // =========================
-          Positioned.fill(
-            child: Container(
-              color: const Color(0xFFE2E8F0),
-              child: CustomPaint(painter: RoutePainter()),
-            ),
-          ),
-
-          // =========================
-          // TOP BAR
-          // =========================
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _circleButton(
-                    icon: Icons.arrow_back,
-                    onPressed: () {
-                      Navigator.pop(context);
-                    },
-                  ),
-                  _circleButton(icon: Icons.explore_outlined, onPressed: () {}),
-                ],
-              ),
-            ),
-          ),
-
-          // =========================
-          // BOTTOM SHEET
-          // =========================
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
-              decoration: const BoxDecoration(
-                color: AppColors.card,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 20,
-                    offset: Offset(0, -6),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 48,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: AppColors.border,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Material(
+                  color: AppColors.card,
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(
+                      Icons.arrow_back,
+                      color: AppColors.primary,
                     ),
                   ),
-
-                  const SizedBox(height: 22),
-
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              destination,
-                              style: const TextStyle(
-                                fontSize: 21,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              location,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                            if (wayMarkCode.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                'WayMark: $wayMarkCode',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: AppColors.textMuted,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            distance,
-                            style: const TextStyle(
-                              fontSize: 19,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.accent,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text(
-                            '~ 3 phút đi bộ',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 22),
-
-                  _routeStep(
-                    icon: Icons.location_on,
-                    title: 'Vị trí hiện tại',
-                    subtitle: 'Cổng chính Khu A • WM-A01',
-                    isActive: true,
-                  ),
-
-                  _routeLine(),
-
-                  _routeStep(
-                    icon: Icons.turn_right,
-                    title: 'WayMark tiếp theo',
-                    subtitle: 'Ngã ba hành lang • WM-A02',
-                  ),
-
-                  _routeLine(),
-
-                  _routeStep(
-                    icon: Icons.location_on_outlined,
-                    title: 'Điểm đến',
-                    subtitle: '$destination • $location',
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  SizedBox(
-                    width: double.infinity,
-                    height: 54,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => NavigationPage(
-                              destination: destination,
-                              location: location,
-                            ),
-                          ),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(28),
-                        ),
-                      ),
-                      child: const Text(
-                        'Bắt đầu dẫn đường',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                ),
+                const SizedBox(width: 16),
+                const Flexible(
+                  child: Text(
+                    'Xem trước tuyến đường',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: FutureBuilder<WayMarkRoute>(
+              future: _route,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text('Đang tìm tuyến đường...'),
+                      ],
+                    ),
+                  );
+                }
+                if (snapshot.hasError) return _error(snapshot.error!);
+                return _routeSheet(snapshot.requireData);
+              },
             ),
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
 
-  Widget _circleButton({
-    required IconData icon,
-    required VoidCallback onPressed,
-  }) {
-    return Material(
-      color: AppColors.card,
-      elevation: 5,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onPressed,
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Icon(icon, color: AppColors.primary),
+  Widget _error(Object error) {
+    final needsLogin = error is WayMarkApiException && error.statusCode == 401;
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.route_outlined,
+              size: 56,
+              color: AppColors.textMuted,
+            ),
+            const SizedBox(height: 16),
+            Text('$error', textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            if (needsLogin)
+              ElevatedButton(
+                onPressed: () => Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute<void>(builder: (_) => const LoginPage()),
+                  (_) => false,
+                ),
+                child: const Text('Đăng nhập lại'),
+              )
+            else
+              ElevatedButton(
+                onPressed: () => setState(() {
+                  _route = _loadRoute();
+                }),
+                child: const Text('Thử lại'),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Chọn lại điểm đến'),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _routeStep({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    bool isActive = false,
-  }) {
-    return Row(
+  Widget _routeSheet(WayMarkRoute route) => Container(
+    padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
+    decoration: const BoxDecoration(
+      color: AppColors.card,
+      borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      boxShadow: [
+        BoxShadow(color: Colors.black12, blurRadius: 20, offset: Offset(0, -6)),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: isActive ? AppColors.accent : AppColors.secondary,
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            icon,
-            size: 17,
-            color: isActive ? Colors.white : AppColors.primary,
+        Center(
+          child: Container(
+            width: 48,
+            height: 6,
+            decoration: BoxDecoration(
+              color: AppColors.border,
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.primary,
-                ),
+        const SizedBox(height: 22),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    route.destination.name,
+                    style: const TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  Text(
+                    route.destination.location,
+                    style: const TextStyle(color: AppColors.textSecondary),
+                  ),
+                  Text('WayMark: ${route.destination.wayMarkCode}'),
+                ],
               ),
-              const SizedBox(height: 3),
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: AppColors.textSecondary,
-                ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              formatMeters(route.totalDistanceMeters),
+              key: const Key('route-distance'),
+              style: const TextStyle(
+                fontSize: 21,
+                fontWeight: FontWeight.bold,
+                color: AppColors.accent,
               ),
-            ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text('Xuất phát: ${route.start.name} • ${route.start.wayMarkCode}'),
+        if (route.accessibleOnly)
+          const Text('Chỉ các cạnh được đánh dấu accessible.'),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            'Các chặng theo bản đồ đã thiết lập. Chưa có định vị trực tiếp hoặc hướng rẽ trái/phải.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
           ),
+        ),
+        if (route.edges.isEmpty)
+          const Text('Điểm xuất phát và điểm đến cùng một node.'),
+        Expanded(
+          child: ListView.builder(
+            itemCount: route.nodes.length,
+            itemBuilder: (context, index) {
+              final node = route.nodes[index];
+              final edge = index < route.edges.length
+                  ? route.edges[index]
+                  : null;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundColor: AppColors.secondary,
+                      child: Text(
+                        '${index + 1}',
+                        style: const TextStyle(color: AppColors.primary),
+                      ),
+                    ),
+                    title: Text(
+                      node.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text('${node.floor.name} • ${node.nodeCode}'),
+                  ),
+                  if (edge != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 20, bottom: 12),
+                      child: Row(
+                        children: [
+                          Icon(
+                            edge.movement == 'ChangeFloor'
+                                ? Icons.elevator_outlined
+                                : Icons.south,
+                            color: AppColors.accent,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              '${_edgeLabel(edge.edgeType)} • ${formatMeters(edge.distanceMeters)}'
+                              '${edge.movement == 'ChangeFloor' ? ' → ${route.nodes[index + 1].floor.name}' : ''}',
+                              style: const TextStyle(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        ElevatedButton(
+          onPressed: null,
+          style: ElevatedButton.styleFrom(
+            minimumSize: const Size.fromHeight(54),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(28),
+            ),
+          ),
+          child: const Text('Dẫn đường trực tiếp chưa khả dụng'),
         ),
       ],
-    );
-  }
+    ),
+  );
 
-  Widget _routeLine() {
-    return Padding(
-      padding: const EdgeInsets.only(left: 16, top: 4, bottom: 4),
-      child: Container(height: 20, width: 2, color: AppColors.border),
-    );
-  }
-}
-
-class RoutePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppColors.accent
-      ..strokeWidth = 7
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final path = Path();
-
-    path.moveTo(size.width * 0.20, size.height * 0.78);
-
-    path.lineTo(size.width * 0.20, size.height * 0.55);
-
-    path.lineTo(size.width * 0.52, size.height * 0.55);
-
-    path.lineTo(size.width * 0.52, size.height * 0.30);
-
-    path.lineTo(size.width * 0.72, size.height * 0.30);
-
-    canvas.drawPath(path, paint);
-
-    // Start point
-    final startPaint = Paint()..color = AppColors.primary;
-
-    canvas.drawCircle(
-      Offset(size.width * 0.20, size.height * 0.78),
-      10,
-      startPaint,
-    );
-
-    // Destination
-    final destinationPaint = Paint()..color = AppColors.accent;
-
-    canvas.drawCircle(
-      Offset(size.width * 0.72, size.height * 0.30),
-      14,
-      destinationPaint,
-    );
-
-    final whitePaint = Paint()..color = Colors.white;
-
-    canvas.drawCircle(
-      Offset(size.width * 0.72, size.height * 0.30),
-      5,
-      whitePaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) {
-    return false;
-  }
+  String _edgeLabel(String type) => switch (type) {
+    'Corridor' => 'Hành lang',
+    'Elevator' => 'Thang máy',
+    'Stairs' => 'Cầu thang',
+    _ => type,
+  };
 }
