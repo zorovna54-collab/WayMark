@@ -5,6 +5,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.OpenApi;
 using WayMark.Api.Services;
+using WayMark.Api.Services.Routing;
 
 var builder = WebApplication.CreateBuilder(args);
 var jwtSecret = builder.Configuration["Jwt:SecretKey"]
@@ -27,6 +28,8 @@ builder.Services.AddControllers();
 builder.Services.Configure<EmailTestOptions>(
     builder.Configuration.GetSection(EmailTestOptions.SectionName));
 builder.Services.AddScoped<ISmtpEmailService, SmtpEmailService>();
+builder.Services.AddSingleton<DijkstraRouter>();
+builder.Services.AddScoped<IRoutePlanner, RoutePlanner>();
 
 builder.Services.AddSwaggerGen(options =>
 {
