@@ -3,11 +3,13 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using WayMark.Api.Data;
 using WayMarkEntity = global::WayMark.Api.Models.WayMark;
+using Microsoft.AspNetCore.Authorization;
 
 namespace WayMark.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class WayMarksController(WayMarkDbContext dbContext) : ControllerBase
 {
     [HttpGet]

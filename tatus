@@ -1,0 +1,7 @@
+ waymark/lib/features/admin/qr_manager_page.dart    |   4 [32m+[m[31m-[m
+ waymark/lib/features/auth/login/login_page.dart    | 114 [32m++++[m[31m--[m
+ .../lib/features/auth/register/register_page.dart  | 395 [32m++++++++++[m[31m-----------[m
+ waymark/lib/services/auth_api_service.dart         | 133 [32m+++++++[m
+ waymark/lib/services/auth_session.dart             |   9 [32m+[m
+ waymark/lib/services/waymark_api_service.dart      |  45 [32m++[m[31m-[m
+ 6 files changed, 433 insertions(+), 267 deletions(-)

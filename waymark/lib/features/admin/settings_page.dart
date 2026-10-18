@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../ai/lm_studio_test_page.dart';
 import 'admin_page_shell.dart';
 
 class AdminSettingsPage extends StatefulWidget {
@@ -57,6 +58,23 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
                   values: ['Sau 30 ngày', 'Sau 60 ngày', 'Không bao giờ'],
                 ),
               ],
+            ),
+          ),
+        ),
+        Card(
+          child: ListTile(
+            leading: const Icon(
+              Icons.smart_toy_outlined,
+              color: AppColors.accent,
+            ),
+            title: const Text('Kiểm thử LM Studio AI'),
+            subtitle: const Text(
+              'Kiểm tra kết nối local và gửi câu hỏi thử nghiệm.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push<void>(
+              context,
+              MaterialPageRoute<void>(builder: (_) => const LmStudioTestPage()),
             ),
           ),
         ),
