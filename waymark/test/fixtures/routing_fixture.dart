@@ -1,6 +1,30 @@
 const startCode = 'WM-DEMO-2A-START';
 const destinationCode = 'WM-DEMO-2A-DEST';
 
+Map<String, dynamic> floorGraphJson(int floorId) {
+  final route = routeJson();
+  final nodes = (route['nodes'] as List)
+      .cast<Map<String, dynamic>>()
+      .where((node) => node['floor']['id'] == floorId)
+      .toList();
+  return {
+    'floor': nodes.first['floor'],
+    'nodes': [
+      for (var i = 0; i < nodes.length; i++)
+        {
+          'id': nodes[i]['id'],
+          'floorId': floorId,
+          'nodeCode': nodes[i]['nodeCode'],
+          'name': nodes[i]['name'],
+          'nodeType': nodes[i]['nodeType'],
+          'x': 0.2 + i * 0.5,
+          'y': 0.3 + i * 0.4,
+        },
+    ],
+    'edges': [], // Drawing must use route edges, not graph edges.
+  };
+}
+
 Map<String, dynamic> pointJson({bool destination = false}) => {
   'id': destination ? 2 : 1,
   'name': destination ? 'Demo destination' : 'Demo entrance',

@@ -60,6 +60,52 @@ class WayMarkApiService {
     return 'http://$host:5121/api';
   }
 
+  Future<List<Map<String, dynamic>>> _mapList(String path) async {
+    final uri = Uri.parse('$baseUrl/Maps/$path');
+    try {
+      final response =
+          await (client?.get(uri, headers: _headers()) ??
+                  http.get(uri, headers: _headers()))
+              .timeout(_timeout);
+      if (response.statusCode != 200) {
+        throw WayMarkApiException(
+          response.statusCode == 401
+              ? 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.'
+              : 'Không tải được danh sách bản đồ (HTTP ${response.statusCode}).',
+          statusCode: response.statusCode,
+        );
+      }
+      final items = (jsonDecode(utf8.decode(response.bodyBytes)) as List)
+          .map((item) => item as Map<String, dynamic>)
+          .toList();
+      if (items.any(
+        (item) =>
+            item['id'] is! int ||
+            (item['id'] as int) <= 0 ||
+            item['name'] is! String,
+      )) {
+        throw const FormatException();
+      }
+      return items;
+    } on WayMarkApiException {
+      rethrow;
+    } on TimeoutException {
+      throw const WayMarkApiException('API phản hồi quá lâu.');
+    } on FormatException {
+      throw const WayMarkApiException('Danh sách bản đồ không hợp lệ.');
+    } on TypeError {
+      throw const WayMarkApiException('Danh sách bản đồ không hợp lệ.');
+    } on Exception {
+      throw const WayMarkApiException('Không thể kết nối WayMark API.');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getSites() => _mapList('sites');
+  Future<List<Map<String, dynamic>>> getBuildings(int siteId) =>
+      _mapList('sites/$siteId/buildings');
+  Future<List<Map<String, dynamic>>> getFloors(int buildingId) =>
+      _mapList('buildings/$buildingId/floors');
+
   Future<List<WayMark>> getWayMarks() async {
     late final http.Response response;
     try {
@@ -134,6 +180,7 @@ class WayMarkApiService {
       () =>
           client?.get(uri, headers: _headers()) ??
           http.get(uri, headers: _headers()),
+      notFoundMessage: 'Không tìm thấy WayMark tương ứng với QR này.',
     );
     try {
       final location = WayMarkMapLocation.fromJson(json);
@@ -147,11 +194,39 @@ class WayMarkApiService {
     }
   }
 
+  Future<FloorMapData> getFloorGraph(int floorId) async {
+    final uri = Uri.parse('$baseUrl/Maps/floors/$floorId/graph');
+    final json = await _readRoutingResponse(
+      () =>
+          client?.get(uri, headers: _headers()) ??
+          http.get(uri, headers: _headers()),
+      notFoundMessage: 'Không tìm thấy thông tin tầng trên bản đồ.',
+    );
+    try {
+      final graph = FloorMapData.fromJson(json);
+      if (graph.floor.id != floorId ||
+          graph.nodes.any((node) => node.floorId != floorId) ||
+          graph.nodes.map((node) => node.id).toSet().length !=
+              graph.nodes.length) {
+        throw const FormatException('Invalid floor graph.');
+      }
+      return graph;
+    } catch (error) {
+      if (error is! FormatException && error is! TypeError) rethrow;
+      throw const WayMarkApiException(
+        'Dữ liệu tọa độ hoặc thông tin tầng không hợp lệ.',
+      );
+    }
+  }
+
   Future<WayMarkRoute> findRoute(
     RouteRequest request, {
     bool accessibleOnly = false,
   }) async {
-    final codes = request.toJson().values;
+    final codes = [
+      request.startWayMarkCode.trim(),
+      request.destinationWayMarkCode.trim(),
+    ];
     if (codes.any(
       (code) =>
           code.isEmpty ||
@@ -184,7 +259,8 @@ class WayMarkApiService {
               request.startWayMarkCode.trim().toLowerCase() ||
           route.destination.wayMarkCode.toLowerCase() !=
               request.destinationWayMarkCode.trim().toLowerCase() ||
-          route.accessibleOnly != accessibleOnly) {
+          route.accessibleOnly != accessibleOnly ||
+          !route.options.matches(request.options)) {
         throw const FormatException('Mismatched route response.');
       }
       return route;
@@ -197,8 +273,9 @@ class WayMarkApiService {
   }
 
   Future<Map<String, dynamic>> _readRoutingResponse(
-    Future<http.Response> Function() send,
-  ) async {
+    Future<http.Response> Function() send, {
+    String? notFoundMessage,
+  }) async {
     late final http.Response response;
     try {
       response = await send().timeout(_timeout);
@@ -217,9 +294,12 @@ class WayMarkApiService {
         400 => 'Yêu cầu tìm đường không hợp lệ. Hãy kiểm tra mã WayMark.',
         401 => 'Phiên đăng nhập đã hết hạn hoặc chưa đăng nhập. Vui lòng đăng nhập lại.',
         403 => 'Tài khoản không có quyền truy cập bản đồ.',
-        404 => 'Không tìm thấy điểm xuất phát hoặc điểm đến. Hãy quét hoặc chọn lại.',
+        404 => notFoundMessage ?? 'Không tìm thấy điểm xuất phát hoặc điểm đến. Hãy quét hoặc chọn lại.',
         409 => 'Điểm xuất phát hoặc điểm đến chưa được liên kết với node bản đồ hợp lệ.',
-        422 => 'Không có tuyến đường theo chiều đi và bộ lọc đã chọn. Hãy chọn điểm đến khác hoặc tắt bộ lọc.',
+        422 =>
+          _problemCode(response) == 'accessibility_not_verified'
+              ? 'Hiện chưa có dữ liệu xác minh cho xe lăn. Cần khảo sát và phê duyệt; không tự chuyển sang tuyến thường.'
+              : 'Không có tuyến đường đáp ứng bộ lọc. Không tự bỏ hạn chế để tìm tuyến khác.',
         503 => 'Dữ liệu bản đồ tạm thời không khả dụng. Vui lòng thử lại sau.',
         _ => 'Không thể tải tuyến đường (HTTP ${response.statusCode}).',
       };
@@ -233,6 +313,17 @@ class WayMarkApiService {
       throw const WayMarkApiException(
         'Phản hồi API không đúng định dạng JSON.',
       );
+    }
+  }
+
+  String? _problemCode(http.Response response) {
+    try {
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
+      return data is Map && data['code'] is String
+          ? data['code'] as String
+          : null;
+    } on FormatException {
+      return null;
     }
   }
 

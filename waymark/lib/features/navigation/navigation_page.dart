@@ -1,662 +1,557 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
+
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/map_ui_theme.dart';
+import '../../models/route_models.dart';
+import '../../services/waymark_api_service.dart';
+import '../route/floor_route_map.dart';
+import '../scanner/scanner_page.dart';
+import 'manual_navigation.dart';
+import 'reroute_navigation.dart';
 
 class NavigationPage extends StatefulWidget {
-  final String destination;
-  final String location;
-
   const NavigationPage({
     super.key,
-    this.destination = 'Khoa Ngoại Thần Kinh',
-    this.location = 'Tầng 4, Khu B',
+    required this.route,
+    this.api,
+    this.onRouteChanged,
   });
+  final WayMarkRoute route;
+  final WayMarkApiService? api;
+  final ValueChanged<WayMarkRoute>? onRouteChanged;
 
   @override
   State<NavigationPage> createState() => _NavigationPageState();
 }
 
 class _NavigationPageState extends State<NavigationPage> {
-  bool cameraMode = false;
-  bool reached = false;
-  int progress = 60;
+  late ManualNavigation _navigation = ManualNavigation(widget.route);
+  late final WayMarkApiService _defaultApi = WayMarkApiService();
+  bool _scanningLocation = false;
+  String? _qrFeedback;
 
-  Timer? _timer;
-
-  @override
-  void initState() {
-    super.initState();
-
-    // Mô phỏng quá trình di chuyển.
-    _timer = Timer(const Duration(seconds: 8), () {
-      if (!mounted) return;
-
+  Future<void> _offerReroute(
+    ManualNavigation state,
+    WayMarkMapLocation location,
+  ) async {
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Tính lại đường từ vị trí này'),
+        content: Text(
+          'QR không thuộc tuyến hiện tại. Tìm đường từ ${location.name} '
+          'đến ${state.route.destination.name}? Bộ lọc tuyến được giữ nguyên.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            key: const Key('confirm-reroute'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Tính lại đường'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || !identical(state, _navigation)) return;
+    if (accepted != true) {
+      setState(
+        () =>
+            _qrFeedback = 'Đã hủy tính lại đường. Tuyến và tiến độ giữ nguyên.',
+      );
+      return;
+    }
+    setState(
+      () => _qrFeedback = 'Đang tính lại đường; vẫn giữ tuyến hiện tại...',
+    );
+    try {
+      final replacement = await rerouteNavigation(
+        state,
+        location,
+        widget.api ?? _defaultApi,
+      );
+      if (!mounted || !identical(state, _navigation)) return;
       setState(() {
-        reached = true;
+        _navigation = replacement;
+        _qrFeedback = 'Đã tải tuyến mới từ QR. Tiến độ bắt đầu lại tại node đã đối chiếu; không có định vị liên tục.';
       });
+      widget.onRouteChanged?.call(replacement.route);
+    } on WayMarkApiException catch (error) {
+      if (mounted && identical(state, _navigation)) {
+        setState(() => _qrFeedback = '$error Tuyến và tiến độ cũ giữ nguyên.');
+      }
+    }
+  }
+
+  Future<void> _scanLocation() async {
+    if (_scanningLocation || !_navigation.isValid) return;
+    final state = _navigation;
+    setState(() {
+      _scanningLocation = true;
+      _qrFeedback = null;
     });
+    try {
+      final location = await Navigator.push<WayMarkMapLocation>(
+        context,
+        MaterialPageRoute<WayMarkMapLocation>(
+          builder: (_) =>
+              ScannerPage.verifyLocation(api: widget.api ?? _defaultApi),
+        ),
+      );
+      if (!mounted || !identical(state, _navigation)) return;
+      if (location == null) {
+        setState(
+          () =>
+              _qrFeedback = 'Chưa có QR hợp lệ được chọn. Tiến độ giữ nguyên.',
+        );
+        return;
+      }
+      final match = state.inspectQr(location);
+      int? target;
+      switch (match.kind) {
+        case QrRouteMatchKind.offRoute:
+          await _offerReroute(state, location);
+          return;
+        case QrRouteMatchKind.past:
+          setState(
+            () => _qrFeedback = 'QR thuộc bước đã qua. Không tự lùi; hãy dùng Bước trước nếu cần.',
+          );
+          return;
+        case QrRouteMatchKind.unmapped:
+        case QrRouteMatchKind.invalidRoute:
+          setState(
+            () => _qrFeedback = 'QR chưa liên kết node/tầng hợp lệ hoặc tuyến không hợp lệ. Tiến độ giữ nguyên.',
+          );
+          return;
+        case QrRouteMatchKind.ambiguous:
+          target = await showDialog<int>(
+            context: context,
+            builder: (dialogContext) => SimpleDialog(
+              title: const Text('Node xuất hiện nhiều lần trên tuyến'),
+              children: [
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'QR không xác định được lần xuất hiện. Hãy chọn bước bạn muốn đối chiếu; không có lựa chọn mặc định.',
+                  ),
+                ),
+                for (final index in match.indices)
+                  SimpleDialogOption(
+                    key: ValueKey('qr-occurrence-$index'),
+                    onPressed: index < state.nodeIndex
+                        ? null
+                        : () => Navigator.pop(dialogContext, index),
+                    child: Text(
+                      'Bước ${index + 1}: ${state.route.nodes[index].name} • ${state.route.nodes[index].floor.name}'
+                      '${index < state.nodeIndex
+                          ? ' (đã qua — không chọn)'
+                          : index == state.nodeIndex
+                          ? ' (giữ bước hiện tại)'
+                          : ''}',
+                    ),
+                  ),
+                SimpleDialogOption(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Hủy'),
+                ),
+              ],
+            ),
+          );
+        case QrRouteMatchKind.current:
+        case QrRouteMatchKind.next:
+        case QrRouteMatchKind.later:
+          target = match.indices.single;
+      }
+      if (!mounted || !identical(state, _navigation)) return;
+      final targetIndex = target;
+      if (targetIndex == null) {
+        setState(() => _qrFeedback = 'Đã hủy chọn bước. Tiến độ giữ nguyên.');
+        return;
+      }
+      if (targetIndex > state.nodeIndex + 1) {
+        final accepted = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text('Chuyển tới bước ${targetIndex + 1}?'),
+            content: Text(
+              'QR liên kết với ${state.route.nodes[targetIndex].name} • ${state.route.nodes[targetIndex].floor.name}. '
+              'Các bước ở giữa chưa được xác nhận. QR này không chứng minh bạn đã đi theo các chặng đó.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Hủy'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Xác nhận chuyển bước'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted || !identical(state, _navigation)) return;
+        if (accepted != true) {
+          setState(
+            () => _qrFeedback = 'Đã hủy chuyển bước. Tiến độ giữ nguyên.',
+          );
+          return;
+        }
+      }
+      final previousIndex = state.nodeIndex;
+      final selected = targetIndex;
+      setState(() {
+        final applied = state.acceptQr(
+          match,
+          selectedIndex: selected,
+          confirmedSelection: true,
+        );
+        _qrFeedback = applied
+            ? 'QR khớp bước ${state.nodeIndex + 1}: ${state.currentNode!.name} • ${state.currentNode!.floor.name}. '
+                  '${previousIndex == state.nodeIndex ? 'Đã ở đúng bước đang chọn; tiến độ giữ nguyên.' : 'Đã cập nhật bước theo QR.'}'
+            : 'Không thể áp dụng kết quả QR vào trạng thái hiện tại. Tiến độ giữ nguyên.';
+      });
+    } on Exception {
+      if (mounted) {
+        setState(
+          () => _qrFeedback =
+              'Không thể xác minh QR. Tiến độ giữ nguyên; hãy thử lại.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _scanningLocation = false);
+    }
   }
 
   @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+  void didUpdateWidget(covariant NavigationPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.route != widget.route) {
+      _navigation = ManualNavigation(widget.route);
+      _qrFeedback = null;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (reached) {
-      return _buildReachedScreen();
+    final state = _navigation;
+    return mapUiTheme(
+      context,
+      Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.card,
+          foregroundColor: AppColors.primary,
+          title: const Text('Dẫn đường từng bước'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.maybePop(context),
+              child: const Text('Kết thúc'),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: !state.isValid
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      state.issue!,
+                      textAlign: TextAlign.center,
+                      key: const Key('navigation-error'),
+                    ),
+                  ),
+                )
+              : Column(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Card(
+                              color: AppColors.primary,
+                              child: Padding(
+                                padding: const EdgeInsets.all(18),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Node đang chọn: ${state.currentNode!.name}',
+                                      key: const Key('navigation-current-node'),
+                                      style: const TextStyle(
+                                        fontSize: 19,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Bước ${state.nodeIndex + 1}/${state.route.nodes.length} • ${state.currentNode!.nodeCode}',
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Tầng của bước hiện tại: ${state.currentNode!.floor.name}',
+                                      key: const Key(
+                                        'navigation-current-floor',
+                                      ),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            FloorRouteMap(
+                              route: _navigation.route,
+                              api: widget.api ?? _defaultApi,
+                              activeNodeIndex: state.nodeIndex,
+                              verifiedNodeIndex: state.lastVerifiedNodeIndex,
+                              activeIsManual:
+                                  state.currentConfirmation ==
+                                  NavigationConfirmation.manual,
+                              activeNodeStatus:
+                                  state.currentConfirmation ==
+                                      NavigationConfirmation.qr
+                                  ? 'Vòng nét đứt: node đã đối chiếu QR tại thời điểm quét.'
+                                  : state.currentConfirmation ==
+                                        NavigationConfirmation.manual
+                                  ? 'Ô vàng: node đang chọn theo xác nhận thủ công.'
+                                  : 'Viền cyan: node đang chọn; chưa xác minh QR.',
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Xác nhận thủ công hoặc đối chiếu QR tại một thời điểm. QR không chứng minh vị trí liên tục hoặc việc đã đi đúng đường. Không có định vị GPS trong nhà.',
+                              key: Key('manual-navigation-notice'),
+                              style: TextStyle(
+                                color: AppColors.textSecondary,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              _navigation.route.destination.name,
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            Text(
+                              'Tổng khoảng cách tuyến: ${formatMeters(_navigation.route.totalDistanceMeters)}',
+                            ),
+                            const SizedBox(height: 12),
+                            if (state.completed)
+                              Card(
+                                color: AppColors.secondary,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    children: [
+                                      const Icon(
+                                        Icons.check_circle_outline,
+                                        color: AppColors.accent,
+                                        size: 48,
+                                      ),
+                                      Text(
+                                        state.skippedUnconfirmedSteps > 0
+                                            ? 'Đã chọn điểm cuối tuyến'
+                                            : 'Đã xác nhận hoàn tất tuyến',
+                                        key: const Key('navigation-complete'),
+                                        style: const TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      Text(
+                                        'Điểm cuối: ${state.currentNode!.name}',
+                                      ),
+                                      const Text(
+                                        'Đây là xác nhận của bạn, chưa phải kết quả định vị.',
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            Text(
+                              state.currentConfirmation ==
+                                      NavigationConfirmation.qr
+                                  ? 'Nguồn xác nhận tại bước này: QR ${state.currentQr!.wayMarkCode} (node ID và tầng đã khớp).'
+                                  : state.currentConfirmation ==
+                                        NavigationConfirmation.manual
+                                  ? 'Nguồn xác nhận tại bước này: thủ công — chưa xác minh bằng QR.'
+                                  : 'Chưa có xác minh QR cho bước đang chọn.',
+                              key: const Key('navigation-confirmation-source'),
+                            ),
+                            if (_qrFeedback != null)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                ),
+                                child: Text(
+                                  _qrFeedback!,
+                                  key: const Key('navigation-qr-feedback'),
+                                ),
+                              ),
+                            if (state.skippedUnconfirmedSteps > 0)
+                              Text(
+                                '${state.skippedUnconfirmedSteps} bước trung gian chưa được xác nhận; không coi là đã đi qua.',
+                                key: const Key('navigation-unconfirmed-steps'),
+                              ),
+                            if (state.currentEdge case final edge?)
+                              _leg('Chặng hiện tại', edge),
+                            if (state.followingEdge case final edge?)
+                              _leg('Chặng tiếp theo', edge),
+                            if (!state.completed &&
+                                _navigation.route.edges.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: Text(
+                                  'Tuyến chỉ có một node. Hãy tự kiểm tra điểm này rồi xác nhận hoàn tất.',
+                                ),
+                              ),
+                            const SizedBox(height: 12),
+                            LinearProgressIndicator(
+                              value: state.progress,
+                              key: const Key('navigation-progress'),
+                              color: AppColors.accent,
+                              backgroundColor: AppColors.secondary,
+                              minHeight: 8,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _progressLabel(state),
+                              key: const Key('navigation-progress-label'),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: const BoxDecoration(
+                        color: AppColors.card,
+                        border: Border(
+                          top: BorderSide(color: AppColors.border),
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _scanningLocation
+                                  ? null
+                                  : _scanLocation,
+                              icon: const Icon(Icons.qr_code_scanner),
+                              label: const Text('Quét QR xác nhận vị trí'),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              OutlinedButton(
+                                onPressed: state.canGoBack && !_scanningLocation
+                                    ? () => setState(() {
+                                        state.previous();
+                                        _qrFeedback = null;
+                                      })
+                                    : null,
+                                child: const Text('Bước trước'),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: ElevatedButton(
+                                  key: const Key('navigation-confirm'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.primary,
+                                    foregroundColor: Colors.white,
+                                    minimumSize: const Size(0, 52),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                    ),
+                                  ),
+                                  onPressed:
+                                      state.completed || _scanningLocation
+                                      ? null
+                                      : () => setState(() {
+                                          state.confirmNext();
+                                          _qrFeedback = null;
+                                        }),
+                                  child: Text(
+                                    _navigation.route.edges.isEmpty
+                                        ? 'Xác nhận hoàn tất tại điểm này'
+                                        : 'Đã đến điểm tiếp theo',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+
+  String _progressLabel(ManualNavigation state) {
+    if (state.route.edges.isEmpty) {
+      if (state.completed) return 'Đã xác nhận điểm duy nhất (thủ công)';
+      return state.currentConfirmation == NavigationConfirmation.qr
+          ? 'Điểm duy nhất đã đối chiếu QR; chưa xác nhận hoàn tất.'
+          : 'Chưa xác nhận điểm duy nhất';
     }
-
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          // =========================
-          // BACKGROUND
-          // =========================
-          Positioned.fill(
-            child: cameraMode
-                ? _buildCameraBackground()
-                : _buildMapBackground(),
-          ),
-
-          // =========================
-          // TOP BAR
-          // =========================
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                16,
-                12,
-                16,
-                0,
-              ),
-              child: Row(
-                mainAxisAlignment:
-                    MainAxisAlignment.spaceBetween,
-                children: [
-                  _topButton(
-                    icon: Icons.close,
-                    onTap: () {
-                      Navigator.pop(context);
-                    },
-                  ),
-                  _cameraToggle(),
-                ],
-              ),
-            ),
-          ),
-
-          // =========================
-          // CURRENT INSTRUCTION
-          // =========================
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.only(
-                top: 92,
-                left: 16,
-                right: 16,
-              ),
-              child: _instructionPanel(),
-            ),
-          ),
-
-          // =========================
-          // BOTTOM NEXT STEP PANEL
-          // =========================
-          _buildBottomPanel(),
-        ],
-      ),
-    );
+    if (state.skippedUnconfirmedSteps > 0) {
+      return 'Tiến độ chọn bước: ${state.nodeIndex}/${state.route.edges.length} chặng (còn bước chưa xác nhận)';
+    }
+    return state.hasQrConfirmations
+        ? 'Tiến độ chọn bước: ${state.nodeIndex}/${state.route.edges.length} chặng (có xác minh QR)'
+        : 'Đã xác nhận ${state.nodeIndex}/${state.route.edges.length} chặng (thủ công)';
   }
 
-  // =========================================================
-  // MAP BACKGROUND
-  // =========================================================
-
-  Widget _buildMapBackground() {
-    return Container(
-      color: const Color(0xFFE2E8F0),
-      child: CustomPaint(
-        painter: NavigationMapPainter(),
-      ),
-    );
-  }
-
-  // =========================================================
-  // CAMERA / AR BACKGROUND
-  // =========================================================
-
-  Widget _buildCameraBackground() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF475569),
-            Color(0xFF1E293B),
-            Color(0xFF020617),
-          ],
-        ),
-      ),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: CustomPaint(
-              painter: CameraEnvironmentPainter(),
-            ),
-          ),
-
-          Center(
-            child: AnimatedScale(
-              scale: 1.0,
-              duration: const Duration(milliseconds: 300),
-              child: const Icon(
-                Icons.navigation,
-                size: 120,
-                color: AppColors.accent,
-                shadows: [
-                  Shadow(
-                    color: Colors.black54,
-                    blurRadius: 20,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // =========================================================
-  // INSTRUCTION PANEL
-  // =========================================================
-
-  Widget _instructionPanel() {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 15,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: AppColors.accent.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(
-              Icons.turn_right,
-              size: 31,
-              color: AppColors.accent,
-            ),
-          ),
-
-          const SizedBox(width: 16),
-
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Rẽ phải phía trước',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 19,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                SizedBox(height: 6),
-                Text(
-                  'vào Hành lang C • Còn 45m',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // =========================================================
-  // BOTTOM PANEL
-  // =========================================================
-
-  Widget _buildBottomPanel() {
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(
-          24,
-          20,
-          24,
-          28,
-        ),
-        decoration: const BoxDecoration(
-          color: AppColors.card,
-          borderRadius: BorderRadius.vertical(
-            top: Radius.circular(32),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black26,
-              blurRadius: 20,
-              offset: Offset(0, -6),
-            ),
-          ],
-        ),
+  Widget _leg(String title, RouteEdge edge) {
+    final from = _navigation.route.nodes[edge.sequence - 1];
+    final to = _navigation.route.nodes[edge.sequence];
+    final changesFloor = from.floor.id != to.floor.id;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: const BoxDecoration(
-                    color: AppColors.secondary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.arrow_upward,
-                    color: AppColors.primary,
-                    size: 21,
-                  ),
-                ),
-
-                const SizedBox(width: 14),
-
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment:
-                        CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'TIẾP THEO',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.9,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      SizedBox(height: 5),
-                      Text(
-                        'Đi thẳng 20m tới Thang máy',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 20),
-
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: LinearProgressIndicator(
-                value: progress / 100,
-                minHeight: 8,
-                backgroundColor: AppColors.secondary,
-                valueColor:
-                    const AlwaysStoppedAnimation<Color>(
-                  AppColors.accent,
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
             Text(
-              'Đã hoàn thành $progress%',
+              title,
               style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary,
+                fontWeight: FontWeight.bold,
+                color: AppColors.primary,
               ),
             ),
+            const SizedBox(height: 6),
+            Text('${from.name} → ${to.name}'),
+            Text(
+              '${navigationEdgeLabel(edge.edgeType)} • ${formatMeters(edge.distanceMeters)}',
+            ),
+            Text(
+              changesFloor
+                  ? 'Chuyển tầng: ${from.floor.name} → ${to.floor.name}'
+                  : 'Tầng: ${from.floor.name}',
+            ),
+            if (changesFloor)
+              Text('Điểm chuyển tầng: ${from.name} → ${to.name}'),
           ],
         ),
       ),
     );
-  }
-
-  // =========================================================
-  // TOP BUTTON
-  // =========================================================
-
-  Widget _topButton({
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: Colors.white.withValues(alpha: 0.12),
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Icon(
-            icon,
-            color: Colors.white,
-            size: 23,
-          ),
-        ),
-      ),
-    );
-  }
-
-  // =========================================================
-  // CAMERA TOGGLE
-  // =========================================================
-
-  Widget _cameraToggle() {
-    return Material(
-      color: cameraMode
-          ? AppColors.accent
-          : Colors.white.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(28),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(28),
-        onTap: () {
-          setState(() {
-            cameraMode = !cameraMode;
-          });
-        },
-        child: Container(
-          height: 48,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.camera_alt_outlined,
-                color: Colors.white,
-                size: 20,
-              ),
-              const SizedBox(width: 7),
-              Text(
-                cameraMode ? 'Tắt Camera' : 'Camera',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // =========================================================
-  // REACHED SCREEN
-  // =========================================================
-
-  Widget _buildReachedScreen() {
-    return Scaffold(
-      backgroundColor: AppColors.primary,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            24,
-            40,
-            24,
-            32,
-          ),
-          child: Column(
-            children: [
-              Expanded(
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 128,
-                        height: 128,
-                        decoration: const BoxDecoration(
-                          color: AppColors.accent,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.location_on,
-                          size: 62,
-                          color: Colors.white,
-                        ),
-                      ),
-
-                      const SizedBox(height: 30),
-
-                      const Text(
-                        'Đã đến nơi!',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 30,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-
-                      const SizedBox(height: 10),
-
-                      Text(
-                        '${widget.destination}, ${widget.location}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.popUntil(
-                      context,
-                      (route) => route.isFirst,
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppColors.primary,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(28),
-                    ),
-                  ),
-                  child: const Text(
-                    'Hoàn tất',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ===========================================================
-// MAP PAINTER
-// ===========================================================
-
-class NavigationMapPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final pathPaint = Paint()
-      ..color = AppColors.accent
-      ..strokeWidth = 8
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final path = Path();
-
-    path.moveTo(
-      size.width * 0.20,
-      size.height * 0.72,
-    );
-
-    path.lineTo(
-      size.width * 0.20,
-      size.height * 0.52,
-    );
-
-    path.lineTo(
-      size.width * 0.52,
-      size.height * 0.52,
-    );
-
-    path.lineTo(
-      size.width * 0.52,
-      size.height * 0.32,
-    );
-
-    path.lineTo(
-      size.width * 0.75,
-      size.height * 0.32,
-    );
-
-    canvas.drawPath(path, pathPaint);
-
-    // Current position
-    final currentPaint = Paint()
-      ..color = AppColors.accent;
-
-    canvas.drawCircle(
-      Offset(
-        size.width * 0.20,
-        size.height * 0.72,
-      ),
-      14,
-      currentPaint,
-    );
-
-    // White center
-    final whitePaint = Paint()
-      ..color = Colors.white;
-
-    canvas.drawCircle(
-      Offset(
-        size.width * 0.20,
-        size.height * 0.72,
-      ),
-      5,
-      whitePaint,
-    );
-
-    // Destination
-    final destinationPaint = Paint()
-      ..color = AppColors.primary;
-
-    canvas.drawCircle(
-      Offset(
-        size.width * 0.75,
-        size.height * 0.32,
-      ),
-      15,
-      destinationPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(
-    covariant CustomPainter oldDelegate,
-  ) {
-    return false;
-  }
-}
-
-// ===========================================================
-// CAMERA ENVIRONMENT PAINTER
-// ===========================================================
-
-class CameraEnvironmentPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final linePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.10)
-      ..strokeWidth = 2;
-
-    final floorY = size.height * 0.72;
-
-    for (int i = 0; i < 9; i++) {
-      final x = size.width * i / 8;
-
-      canvas.drawLine(
-        Offset(size.width / 2, floorY),
-        Offset(x, size.height),
-        linePaint,
-      );
-    }
-
-    canvas.drawLine(
-      Offset(0, floorY),
-      Offset(size.width, floorY),
-      linePaint,
-    );
-
-    final wallPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.08)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-
-    canvas.drawRect(
-      Rect.fromLTWH(
-        size.width * 0.18,
-        size.height * 0.28,
-        size.width * 0.64,
-        size.height * 0.44,
-      ),
-      wallPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(
-    covariant CustomPainter oldDelegate,
-  ) {
-    return false;
   }
 }

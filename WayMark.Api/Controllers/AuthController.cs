@@ -128,7 +128,7 @@ public class AuthController : ControllerBase
         var expiresAt = DateTime.UtcNow
             .AddMinutes(expiryMinutes);
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id),
             new Claim(
@@ -139,6 +139,11 @@ public class AuthController : ControllerBase
                 ClaimTypes.Name,
                 user.UserName ?? username)
         };
+
+        // Membership comes only from the server's Identity store. Register/login
+        // request bodies, usernames and Flutter UI state cannot grant a role.
+        var roles = await _userManager.GetRolesAsync(user);
+        claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
 
         var jwt = new JwtSecurityToken(
             issuer: issuer,

@@ -91,6 +91,9 @@ void main() {
       var routes = 0;
       final client = MockClient((r) async {
         expect(r.headers['Authorization'], 'Bearer widget-test-token');
+        if (r.url.path.endsWith('/graph')) {
+          return http.Response(jsonEncode(floorGraphJson(1)), 200);
+        }
         if (r.url.path.endsWith('/map-location')) {
           lookups++;
           return http.Response(jsonEncode(mapLocationJson()), 200);
@@ -122,6 +125,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(RoutePreviewPage), findsOneWidget);
       expect(find.text('40 m'), findsOneWidget);
+      await tester.drag(
+        find.byKey(const Key('route-instructions')),
+        const Offset(0, -450),
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.textContaining('Thang máy • 15.25 m → Floor two'),
+        160,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const Key('route-instructions')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       expect(
         find.textContaining('Thang máy • 15.25 m → Floor two'),
         findsOneWidget,
@@ -183,6 +201,9 @@ void main() {
     'Search entered without start scans QR and resumes chosen destination',
     (tester) async {
       final client = MockClient((r) async {
+        if (r.url.path.endsWith('/graph')) {
+          return http.Response(jsonEncode(floorGraphJson(1)), 200);
+        }
         if (r.url.path.endsWith('/WayMarks')) {
           return http.Response(jsonEncode([pointJson(destination: true)]), 200);
         }
@@ -233,6 +254,9 @@ void main() {
     final pending = Completer<http.Response>();
     var count = 0;
     final client = MockClient((r) {
+      if (r.url.path.endsWith('/graph')) {
+        return Future.value(http.Response(jsonEncode(floorGraphJson(1)), 200));
+      }
       count++;
       return count == 1
           ? pending.future

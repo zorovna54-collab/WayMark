@@ -1,26 +1,13 @@
 using Microsoft.EntityFrameworkCore;
 using WayMark.Api.Data;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.OpenApi;
 using WayMark.Api.Services;
 using WayMark.Api.Services.Routing;
+using WayMark.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
-var jwtSecret = builder.Configuration["Jwt:SecretKey"]
-    ?? throw new InvalidOperationException(
-        "Missing configuration: Jwt:SecretKey");
-
-var jwtIssuer = builder.Configuration["Jwt:Issuer"]
-    ?? throw new InvalidOperationException(
-        "Missing configuration: Jwt:Issuer");
-
-var jwtAudience = builder.Configuration["Jwt:Audience"]
-    ?? throw new InvalidOperationException(
-        "Missing configuration: Jwt:Audience");
-
-var jwtKey = Convert.FromBase64String(jwtSecret);
+builder.Services.AddWayMarkSecurity(builder.Configuration);
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -53,28 +40,6 @@ builder.Services.AddSwaggerGen(options =>
             [new OpenApiSecuritySchemeReference("Bearer", document)] = []
         });
 });
-builder.Services
-    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = jwtIssuer,
-
-            ValidateAudience = true,
-            ValidAudience = jwtAudience,
-
-            ValidateLifetime = true,
-
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(jwtKey),
-
-            ClockSkew = TimeSpan.FromSeconds(30)
-        };
-    });
-
-builder.Services.AddAuthorization();
 builder.Services.AddCors(options => options.AddPolicy("Development", policy =>
     policy
         .SetIsOriginAllowed(origin =>
@@ -101,6 +66,7 @@ builder.Services
 
         options.User.RequireUniqueEmail = false;
     })
+    .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<AuthDbContext>();
 var app = builder.Build();
 

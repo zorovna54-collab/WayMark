@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WayMark.Api.Services;
+using WayMark.Api.Security;
 
 namespace WayMark.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize(Policy = WayMarkSecurity.AdminPolicy)]
 public sealed class EmailController(ISmtpEmailService emailService) : ControllerBase
 {
     [HttpPost("test")]

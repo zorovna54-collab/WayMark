@@ -7,9 +7,19 @@ import 'qr_manager_page.dart';
 import 'settings_page.dart';
 
 class AdminPageShell extends StatelessWidget {
-  const AdminPageShell({super.key, required this.title, required this.child});
+  const AdminPageShell({
+    super.key,
+    required this.title,
+    required this.child,
+    this.onBack,
+    this.scaffoldKey,
+    this.beforeNavigate,
+  });
   final String title;
   final Widget child;
+  final VoidCallback? onBack;
+  final GlobalKey<ScaffoldState>? scaffoldKey;
+  final Future<bool> Function()? beforeNavigate;
 
   static const _destinations = <(String, IconData, Widget)>[
     ('Dashboard', Icons.dashboard_outlined, AdminDashboardPage()),
@@ -20,11 +30,30 @@ class AdminPageShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    key: scaffoldKey,
     backgroundColor: AppColors.background,
     appBar: AppBar(
       title: Text(title),
       backgroundColor: AppColors.card,
       foregroundColor: AppColors.primary,
+      leading: onBack == null
+          ? null
+          : IconButton(
+              tooltip: 'Quay lại',
+              onPressed: onBack,
+              icon: const Icon(Icons.arrow_back),
+            ),
+      actions: onBack == null
+          ? null
+          : [
+              Builder(
+                builder: (context) => IconButton(
+                  tooltip: 'Menu quản trị',
+                  onPressed: () => Scaffold.of(context).openDrawer(),
+                  icon: const Icon(Icons.menu),
+                ),
+              ),
+            ],
     ),
     drawer: Drawer(
       child: SafeArea(
@@ -49,7 +78,11 @@ class AdminPageShell extends StatelessWidget {
               ListTile(
                 leading: Icon(item.$2, color: AppColors.accent),
                 title: Text(item.$1),
-                onTap: () {
+                onTap: () async {
+                  if (beforeNavigate != null && !await beforeNavigate!()) {
+                    return;
+                  }
+                  if (!context.mounted) return;
                   Navigator.pop(context);
                   Navigator.pushReplacement(
                     context,

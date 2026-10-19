@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using WayMark.Api.Services.Routing;
 
 namespace WayMark.Api.Contracts;
 
@@ -9,6 +10,9 @@ public sealed class RouteRequest
 
     [Required, StringLength(100)]
     public string DestinationWayMarkCode { get; init; } = string.Empty;
+
+    [Required]
+    public RoutingOptions Options { get; init; } = new();
 }
 
 public sealed record RoutePointDto(int Id, string Name, string Location, string WayMarkCode);
@@ -22,4 +26,5 @@ public sealed record RouteEdgeDto(
 
 public sealed record RouteResponseDto(
     RoutePointDto Start, RoutePointDto Destination, decimal TotalDistanceMeters,
-    bool AccessibleOnly, IReadOnlyList<RouteNodeDto> Nodes, IReadOnlyList<RouteEdgeDto> Edges);
+    bool AccessibleOnly, IReadOnlyList<RouteNodeDto> Nodes, IReadOnlyList<RouteEdgeDto> Edges,
+    RoutingOptions? Options = null);

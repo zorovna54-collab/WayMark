@@ -165,6 +165,9 @@ public sealed class RouteApiTests : IAsyncLifetime
     [InlineData("{\"startWayMarkCode\":\" \",\"destinationWayMarkCode\":\"END\"}")]
     [InlineData("{\"startWayMarkCode\":\"START\",\"destinationWayMarkCode\":null}")]
     [InlineData("{bad-json")]
+    [InlineData("{\"startWayMarkCode\":\"START\",\"destinationWayMarkCode\":\"END\",\"options\":null}")]
+    [InlineData("{\"startWayMarkCode\":\"START\",\"destinationWayMarkCode\":\"END\",\"options\":{\"avoidStairs\":\"true\"}}")]
+    [InlineData("{\"startWayMarkCode\":\"START\",\"destinationWayMarkCode\":\"END\",\"options\":{\"preference\":null}}")]
     public async Task InvalidRequestReturns400(string body)
     {
         using var response = await client.PostAsync("/api/routes", new StringContent(body, Encoding.UTF8, "application/json"));
@@ -218,6 +221,56 @@ public sealed class RouteApiTests : IAsyncLifetime
     private Task<HttpResponseMessage> Post(string start, string end, string query = "") =>
         client.PostAsJsonAsync("/api/routes" + query, new { startWayMarkCode = start, destinationWayMarkCode = end });
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"avoidStairs\":false,\"wheelchair\":false,\"preference\":\"ShortestDistance\"}")]
+    public async Task LegacyAndExplicitDefaultOptionsProduceIdenticalResponses(string options)
+    {
+        using var legacy = await Post("START", "END");
+        using var explicitOptions = await client.PostAsync("/api/routes", new StringContent(
+            "{\"startWayMarkCode\":\"START\",\"destinationWayMarkCode\":\"END\",\"options\":" + options + "}",
+            Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, legacy.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, explicitOptions.StatusCode);
+        Assert.Equal(await legacy.Content.ReadAsStringAsync(), await explicitOptions.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task WheelchairRequestFailsClosedWithExplicitMetadataError()
+    {
+        using var response = await client.PostAsJsonAsync("/api/routes", new {
+            startWayMarkCode = "START", destinationWayMarkCode = "END",
+            options = new { wheelchair = true }
+        });
+        await AssertProblem(response, 422, "accessibility_not_verified");
+    }
+
+    [Theory]
+    [InlineData("invalid")]
+    [InlineData("")]
+    public async Task InvalidPreferenceReturns400(string preference)
+    {
+        using var response = await client.PostAsJsonAsync("/api/routes", new {
+            startWayMarkCode = "START", destinationWayMarkCode = "END", options = new { preference }
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task AvoidStairsResponseEchoesOptionsAndJwtRemainsRequired()
+    {
+        var request = new { startWayMarkCode = "START", destinationWayMarkCode = "END",
+            options = new { avoidStairs = true, preference = "PreferElevators" } };
+        using var response = await client.PostAsJsonAsync("/api/routes", request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var route = (await response.Content.ReadFromJsonAsync<RouteResponseDto>())!;
+        Assert.True(route.Options!.AvoidStairs);
+        Assert.Equal("PreferElevators", route.Options.Preference);
+        client.DefaultRequestHeaders.Authorization = null;
+        using var unauthorized = await client.PostAsJsonAsync("/api/routes", request);
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+    }
+
     private static async Task AssertProblem(HttpResponseMessage response, int status, string code)
     {
         Assert.Equal(status, (int)response.StatusCode);
@@ -245,8 +298,8 @@ public sealed class RouteApiTests : IAsyncLifetime
     private sealed class TestDbException(string message) : DbException(message);
     private sealed class FailureInjectingPlanner(RoutePlanner actual, Func<Exception?> failure) : IRoutePlanner
     {
-        public Task<RoutePlanResult> PlanAsync(string startCode, string destinationCode, bool accessibleOnly, CancellationToken cancellationToken) =>
+        public Task<RoutePlanResult> PlanAsync(string startCode, string destinationCode, bool accessibleOnly, CancellationToken cancellationToken, RoutingOptions? options = null) =>
             failure() is Exception exception ? Task.FromException<RoutePlanResult>(exception)
-                : actual.PlanAsync(startCode, destinationCode, accessibleOnly, cancellationToken);
+                : actual.PlanAsync(startCode, destinationCode, accessibleOnly, cancellationToken, options);
     }
 }

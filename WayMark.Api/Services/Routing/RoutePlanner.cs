@@ -14,6 +14,7 @@ public enum RoutePlanStatus
     StartNodeNotFound,
     DestinationNodeNotFound,
     NoRoute,
+    AccessibilityNotVerified,
     InvalidGraph
 }
 
@@ -22,13 +23,13 @@ public sealed record RoutePlanResult(RoutePlanStatus Status, RouteResponseDto? R
 public interface IRoutePlanner
 {
     Task<RoutePlanResult> PlanAsync(string startCode, string destinationCode,
-        bool accessibleOnly, CancellationToken cancellationToken);
+        bool accessibleOnly, CancellationToken cancellationToken, RoutingOptions? options = null);
 }
 
 public sealed class RoutePlanner(WayMarkDbContext dbContext, DijkstraRouter router) : IRoutePlanner
 {
     public async Task<RoutePlanResult> PlanAsync(string startCode, string destinationCode,
-        bool accessibleOnly, CancellationToken cancellationToken)
+        bool accessibleOnly, CancellationToken cancellationToken, RoutingOptions? options = null)
     {
         // Separate server-side lookups preserve SQL Server's WayMarkCode collation semantics.
         var start = await dbContext.WayMarks.AsNoTracking()
@@ -57,10 +58,15 @@ public sealed class RoutePlanner(WayMarkDbContext dbContext, DijkstraRouter rout
             .ToListAsync(cancellationToken);
         var path = router.FindPath(nodes.Select(node => node.Id).ToArray(),
             edges.Select(edge => new RoutingEdge(edge.Id, edge.FromNodeId, edge.ToNodeId,
-                edge.DistanceMeters, edge.IsActive, edge.IsAccessible)).ToArray(),
-            startNodeId, destinationNodeId, accessibleOnly, cancellationToken);
+                edge.DistanceMeters, edge.IsActive, edge.IsAccessible, edge.EdgeType)).ToArray(),
+            startNodeId, destinationNodeId, accessibleOnly, cancellationToken, options);
         if (path.Status != PathStatus.Success)
-            return new(path.Status == PathStatus.NoPath ? RoutePlanStatus.NoRoute : RoutePlanStatus.InvalidGraph);
+            return new(path.Status switch
+            {
+                PathStatus.NoPath => RoutePlanStatus.NoRoute,
+                PathStatus.AccessibilityNotVerified => RoutePlanStatus.AccessibilityNotVerified,
+                _ => RoutePlanStatus.InvalidGraph
+            });
 
         var edgeById = edges.ToDictionary(edge => edge.Id);
         var orderedEdges = path.Edges.Select((step, index) =>
@@ -76,6 +82,6 @@ public sealed class RoutePlanner(WayMarkDbContext dbContext, DijkstraRouter rout
             new RoutePointDto(start.Id, start.Name, start.Location, start.WayMarkCode),
             new RoutePointDto(destination.Id, destination.Name, destination.Location, destination.WayMarkCode),
             path.TotalDistanceMeters, accessibleOnly,
-            path.NodeIds.Select(id => nodeById[id]).ToArray(), orderedEdges));
+            path.NodeIds.Select(id => nodeById[id]).ToArray(), orderedEdges, options ?? new()));
     }
 }

@@ -1,15 +1,54 @@
 // Contracts from WayMark.Api/Contracts/MapDtos.cs and RouteDtos.cs.
 // Distances come from the server; normalized map coordinates are not meters.
+class RoutingOptions {
+  const RoutingOptions({
+    this.avoidStairs = false,
+    this.wheelchair = false,
+    this.preference = 'ShortestDistance',
+  });
+  final bool avoidStairs, wheelchair;
+  final String preference;
+  bool get isDefault =>
+      !avoidStairs && !wheelchair && preference == 'ShortestDistance';
+  Map<String, dynamic> toJson() => {
+    'avoidStairs': avoidStairs,
+    'wheelchair': wheelchair,
+    'preference': preference,
+  };
+  factory RoutingOptions.fromJson(Map<String, dynamic> j) {
+    final result = RoutingOptions(
+      avoidStairs: j['avoidStairs'] as bool,
+      wheelchair: j['wheelchair'] as bool,
+      preference: j['preference'] as String,
+    );
+    if (![
+      'ShortestDistance',
+      'PreferElevators',
+      'LessWalking',
+    ].contains(result.preference)) {
+      throw const FormatException('Unknown route preference.');
+    }
+    return result;
+  }
+  bool matches(RoutingOptions other) =>
+      avoidStairs == other.avoidStairs &&
+      wheelchair == other.wheelchair &&
+      preference == other.preference;
+}
+
 class RouteRequest {
   const RouteRequest({
     required this.startWayMarkCode,
     required this.destinationWayMarkCode,
+    this.options = const RoutingOptions(),
   });
   final String startWayMarkCode;
   final String destinationWayMarkCode;
-  Map<String, String> toJson() => {
+  final RoutingOptions options;
+  Map<String, dynamic> toJson() => {
     'startWayMarkCode': startWayMarkCode.trim(),
     'destinationWayMarkCode': destinationWayMarkCode.trim(),
+    if (!options.isDefault) 'options': options.toJson(),
   };
 }
 
@@ -156,10 +195,12 @@ class WayMarkRoute {
     required this.accessibleOnly,
     required this.nodes,
     required this.edges,
+    this.options = const RoutingOptions(),
   });
   final RoutePoint start, destination;
   final double totalDistanceMeters;
   final bool accessibleOnly;
+  final RoutingOptions options;
   final List<RouteNode> nodes;
   final List<RouteEdge> edges;
 
@@ -171,6 +212,9 @@ class WayMarkRoute {
       ),
       totalDistanceMeters: (j['totalDistanceMeters'] as num).toDouble(),
       accessibleOnly: j['accessibleOnly'] as bool,
+      options: j['options'] == null
+          ? const RoutingOptions()
+          : RoutingOptions.fromJson(j['options'] as Map<String, dynamic>),
       nodes: List.unmodifiable(
         (j['nodes'] as List).map(
           (n) => RouteNode.fromJson(n as Map<String, dynamic>),
@@ -201,8 +245,63 @@ class WayMarkRoute {
         throw const FormatException('Invalid ordered route edge.');
       }
     }
+    if (route.options.wheelchair ||
+        (route.options.avoidStairs &&
+            route.edges.any((edge) => edge.edgeType == 'Stairs'))) {
+      throw const FormatException(
+        'Route violates restrictions or lacks wheelchair verification.',
+      );
+    }
     return route;
   }
+}
+
+/// Coordinates are obtained from the existing floor graph endpoint, not /routes.
+/// Patient route maps ignore graph edges; draft editing may copy them separately.
+class FloorMapData {
+  const FloorMapData({
+    required this.floor,
+    required this.nodes,
+    this.edges = const [],
+  });
+  final RouteFloor floor;
+  final List<MapNode> nodes;
+  final List<MapGraphEdge> edges;
+
+  factory FloorMapData.fromJson(Map<String, dynamic> json) => FloorMapData(
+    floor: RouteFloor.fromJson(json['floor'] as Map<String, dynamic>),
+    nodes: List.unmodifiable(
+      (json['nodes'] as List).map(
+        (node) => MapNode.fromJson(node as Map<String, dynamic>),
+      ),
+    ),
+    edges: List.unmodifiable(
+      ((json['edges'] as List?) ?? []).map(
+        (edge) => MapGraphEdge.fromJson(edge as Map<String, dynamic>),
+      ),
+    ),
+  );
+}
+
+class MapGraphEdge {
+  const MapGraphEdge(
+    this.fromNodeId,
+    this.toNodeId,
+    this.distanceMeters,
+    this.edgeType,
+    this.isActive,
+  );
+  final int fromNodeId, toNodeId;
+  final double distanceMeters;
+  final String edgeType;
+  final bool isActive;
+  factory MapGraphEdge.fromJson(Map<String, dynamic> json) => MapGraphEdge(
+    json['fromNodeId'] as int,
+    json['toNodeId'] as int,
+    (json['distanceMeters'] as num).toDouble(),
+    json['edgeType'] as String,
+    json['isActive'] as bool,
+  );
 }
 
 String formatMeters(double meters) =>

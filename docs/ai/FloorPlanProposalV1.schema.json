@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://waymark.invalid/contracts/floor-plan-proposal-v1",
+  "title": "WayMark AI floor plan proposal — design contract only",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "requestId", "status", "requiresHumanReview", "image", "rooms", "corridors", "doors", "stairs", "elevators", "navigationNodes", "navigationEdges", "warnings"],
+  "properties": {
+    "version": {"const": 1},
+    "requestId": {"type": "string", "minLength": 1, "maxLength": 100},
+    "status": {"const": "proposal"},
+    "requiresHumanReview": {"const": true},
+    "image": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sha256", "width", "height", "coordinateSpace"],
+      "properties": {
+        "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "width": {"type": "integer", "minimum": 1, "maximum": 8192},
+        "height": {"type": "integer", "minimum": 1, "maximum": 8192},
+        "coordinateSpace": {"const": "normalized-top-left-decoded-image"}
+      }
+    },
+    "rooms": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/area"}},
+    "corridors": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/area"}},
+    "doors": {"type": "array", "maxItems": 1000, "items": {"$ref": "#/$defs/landmark"}},
+    "stairs": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/landmark"}},
+    "elevators": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/landmark"}},
+    "navigationNodes": {
+      "type": "array", "maxItems": 2000,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["proposalId", "label", "kind", "point", "confidence", "reviewStatus", "requiresVerification", "evidence"],
+        "properties": {
+          "proposalId": {"$ref": "#/$defs/id"},
+          "label": {"type": "string", "maxLength": 200},
+          "kind": {"enum": ["Entrance", "Junction", "Destination", "Elevator", "Stairs"]},
+          "point": {"$ref": "#/$defs/point"},
+          "confidence": {"$ref": "#/$defs/confidence"},
+          "reviewStatus": {"const": "pending"},
+          "requiresVerification": {"const": true},
+          "evidence": {"type": "string", "maxLength": 2000}
+        }
+      }
+    },
+    "navigationEdges": {
+      "type": "array", "maxItems": 10000,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["proposalId", "fromProposalNodeId", "toProposalNodeId", "edgeType", "geometry", "distanceMeters", "accessibility", "confidence", "reviewStatus", "requiresVerification", "evidence"],
+        "properties": {
+          "proposalId": {"$ref": "#/$defs/id"},
+          "fromProposalNodeId": {"$ref": "#/$defs/id"},
+          "toProposalNodeId": {"$ref": "#/$defs/id"},
+          "edgeType": {"enum": ["Corridor", "Door", "Elevator", "Stairs", "Ramp"]},
+          "geometry": {"type": "array", "minItems": 2, "maxItems": 100, "items": {"$ref": "#/$defs/point"}},
+          "distanceMeters": {"type": "null"},
+          "accessibility": {"const": "unverified"},
+          "confidence": {"$ref": "#/$defs/confidence"},
+          "reviewStatus": {"const": "pending"},
+          "requiresVerification": {"const": true},
+          "evidence": {"type": "string", "maxLength": 2000}
+        }
+      }
+    },
+    "warnings": {"type": "array", "maxItems": 100, "items": {"type": "string", "maxLength": 2000}}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^AI-[A-Za-z0-9_-]{1,90}$"},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "point": {
+      "type": "object", "additionalProperties": false, "required": ["x", "y"],
+      "properties": {"x": {"type": "number", "minimum": 0, "maximum": 1}, "y": {"type": "number", "minimum": 0, "maximum": 1}}
+    },
+    "area": {
+      "type": "object", "additionalProperties": false,
+      "required": ["proposalId", "label", "polygon", "confidence", "reviewStatus", "requiresVerification", "evidence"],
+      "properties": {
+        "proposalId": {"$ref": "#/$defs/id"}, "label": {"type": "string", "maxLength": 200},
+        "polygon": {"type": "array", "minItems": 3, "maxItems": 100, "items": {"$ref": "#/$defs/point"}},
+        "confidence": {"$ref": "#/$defs/confidence"}, "reviewStatus": {"const": "pending"},
+        "requiresVerification": {"const": true}, "evidence": {"type": "string", "maxLength": 2000}
+      }
+    },
+    "landmark": {
+      "type": "object", "additionalProperties": false,
+      "required": ["proposalId", "label", "point", "confidence", "reviewStatus", "requiresVerification", "evidence"],
+      "properties": {
+        "proposalId": {"$ref": "#/$defs/id"}, "label": {"type": "string", "maxLength": 200},
+        "point": {"$ref": "#/$defs/point"}, "confidence": {"$ref": "#/$defs/confidence"},
+        "reviewStatus": {"const": "pending"}, "requiresVerification": {"const": true},
+        "evidence": {"type": "string", "maxLength": 2000}
+      }
+    }
+  }
+}

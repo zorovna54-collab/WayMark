@@ -5,6 +5,7 @@ using WayMark.Api.Data;
 using WayMarkEntity = global::WayMark.Api.Models.WayMark;
 using Microsoft.AspNetCore.Authorization;
 using WayMark.Api.Contracts;
+using WayMark.Api.Security;
 
 namespace WayMark.Api.Controllers;
 
@@ -77,6 +78,7 @@ public class WayMarksController(WayMarkDbContext dbContext) : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Policy = WayMarkSecurity.AdminPolicy)]
     public async Task<ActionResult<WayMarkEntity>> Create(WayMarkEntity input)
     {
         Normalize(input);
@@ -100,6 +102,7 @@ public class WayMarksController(WayMarkDbContext dbContext) : ControllerBase
     }
 
     [HttpPut("{id:int}")]
+    [Authorize(Policy = WayMarkSecurity.AdminPolicy)]
     public async Task<IActionResult> Update(int id, WayMarkEntity input)
     {
         var wayMark = await dbContext.WayMarks.FirstOrDefaultAsync(item => item.Id == id);
@@ -131,6 +134,7 @@ public class WayMarksController(WayMarkDbContext dbContext) : ControllerBase
     }
 
     [HttpDelete("{id:int}")]
+    [Authorize(Policy = WayMarkSecurity.AdminPolicy)]
     public async Task<IActionResult> Delete(int id)
     {
         var wayMark = await dbContext.WayMarks.FirstOrDefaultAsync(item => item.Id == id);

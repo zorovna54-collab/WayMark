@@ -27,7 +27,7 @@ public class RoutesController(IRoutePlanner planner, ILogger<RoutesController> l
         try
         {
             var result = await planner.PlanAsync(request.StartWayMarkCode.Trim(),
-                request.DestinationWayMarkCode.Trim(), accessibleOnly, cancellationToken);
+                request.DestinationWayMarkCode.Trim(), accessibleOnly, cancellationToken, request.Options);
             return result.Status switch
             {
                 RoutePlanStatus.Success when result.Route is not null => Ok(result.Route),
@@ -38,6 +38,7 @@ public class RoutesController(IRoutePlanner planner, ILogger<RoutesController> l
                 RoutePlanStatus.StartNodeNotFound => Failure(409, "start_node_not_found", "Start navigation node or floor is unavailable"),
                 RoutePlanStatus.DestinationNodeNotFound => Failure(409, "destination_node_not_found", "Destination navigation node or floor is unavailable"),
                 RoutePlanStatus.NoRoute => Failure(422, "no_route", "No route exists for the requested direction and filters"),
+                RoutePlanStatus.AccessibilityNotVerified => Failure(422, "accessibility_not_verified", "Wheelchair routing requires verified accessibility metadata; IsAccessible alone is insufficient"),
                 _ => Failure(500, "invalid_graph", "Map data cannot be used to calculate a route")
             };
         }
