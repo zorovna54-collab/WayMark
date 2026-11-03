@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -15,6 +17,7 @@ android {
     }
 
     defaultConfig {
+        manifestPlaceholders["waymarkAppLabel"] = "waymark"
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.waymark"
         // You can update the following values to match your application needs.
@@ -27,6 +30,24 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    // Only the explicitly requested test build adds a flavor; ordinary
+    // flutter run/build commands retain the existing unflavored main app.
+    val liveTestRequested = providers.gradleProperty("dart-defines").orNull
+        ?.split(",")?.any {
+            runCatching { String(Base64.getDecoder().decode(it)) }
+                .getOrNull() == "WAYMARK_LIVE_TEST=true"
+        } == true
+    if (liveTestRequested) {
+        flavorDimensions += "edition"
+        productFlavors {
+            create("liveTest") {
+                dimension = "edition"
+                applicationIdSuffix = ".livetest"
+                manifestPlaceholders["waymarkAppLabel"] = "WayMark Live Test"
+            }
+        }
     }
 
     buildTypes {

@@ -9,6 +9,7 @@ import 'package:http/testing.dart';
 import 'package:waymark/features/admin/draft_map.dart';
 import 'package:waymark/features/admin/draft_map_editor.dart';
 import 'package:waymark/features/admin/floor_plan_asset.dart';
+import 'package:waymark/features/admin/local_map_project.dart';
 import 'package:waymark/models/route_models.dart';
 import 'package:waymark/services/auth_session.dart';
 import 'package:waymark/services/waymark_api_service.dart';
@@ -78,6 +79,46 @@ void main() {
       throwsFormatException,
     );
   });
+
+  test(
+    'Node destination metadata round-trips in JSON v2 and project v3',
+    () async {
+      final map = DraftMap.local('Site', 'Building', 'Floor', 'F1')
+        ..putNode(
+          const DraftNode(
+            'A',
+            'Node A',
+            .2,
+            .3,
+            'Junction',
+            displayName: 'Main entrance',
+            searchableAsDestination: true,
+            landmarkNote: 'Next to the blue desk',
+            wayMarkCode: 'QR-A',
+            sourceNodeId: 42,
+          ),
+        );
+
+      final restoredV2 = await DraftMap.decode(
+        map.encode(),
+        siteId: map.siteId,
+        buildingId: map.buildingId,
+        floor: map.floor,
+        allowLocal: true,
+      );
+      final restoredV3 = (await LocalMapProject.decode(
+        LocalMapProject(map).encode(),
+      )).floors.single;
+
+      for (final node in [restoredV2.nodes.single, restoredV3.nodes.single]) {
+        expect(node.displayName, 'Main entrance');
+        expect(node.searchableAsDestination, isTrue);
+        expect(node.landmarkNote, 'Next to the blue desk');
+        expect(node.wayMarkCode, 'QR-A');
+        expect(node.sourceNodeId, 42);
+      }
+    },
+  );
 
   test(
     'Image input rejects MIME spoof, paths, oversized data and corrupt image',
@@ -185,7 +226,7 @@ void main() {
       await choose('Site', 'Test site');
       await choose('Building', 'Building');
       await choose('Floor', 'Floor one');
-      expect(find.textContaining('2 node / 0 cạnh'), findsOneWidget);
+      expect(find.textContaining('2 Node • 0 Edge'), findsOneWidget);
       expect(find.textContaining('BẢN NHÁP'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.ensureVisible(find.text('Thêm node'));
@@ -196,9 +237,56 @@ void main() {
       final fields = find.byType(TextField);
       await tester.enterText(fields.at(0), 'DRAFT-TEST');
       await tester.enterText(fields.at(1), 'Draft destination');
+      await tester.enterText(
+        find.byKey(const Key('draft-node-display-name')),
+        'Destination label',
+      );
+      await tester.tap(
+        find.byKey(const Key('draft-node-searchable-destination')),
+      );
+      await tester.enterText(
+        find.byKey(const Key('draft-node-landmark-note')),
+        'Beside the blue desk',
+      );
       await tester.tap(find.text('Lưu node nháp'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('3 node / 0 cạnh'), findsOneWidget);
+      expect(find.textContaining('3 Node • 0 Edge'), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('edit-draft-node')));
+      await tester.tap(find.byKey(const Key('edit-draft-node')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('draft-node-name')))
+            .controller!
+            .text,
+        'Draft destination',
+      );
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('draft-node-display-name')))
+            .controller!
+            .text,
+        'Destination label',
+      );
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.byKey(const Key('draft-node-searchable-destination')),
+            )
+            .value,
+        isTrue,
+      );
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const Key('draft-node-landmark-note')),
+            )
+            .controller!
+            .text,
+        'Beside the blue desk',
+      );
+      await tester.tap(find.text('Hủy'));
+      await tester.pumpAndSettle();
       await choose('Site', 'Other site');
       expect(find.text('Rời bản nháp chưa xuất?'), findsOneWidget);
       await tester.tap(find.text('Giữ lại'));
@@ -211,7 +299,7 @@ void main() {
             .value,
         1,
       );
-      expect(find.textContaining('3 node / 0 cạnh'), findsOneWidget);
+      expect(find.textContaining('3 Node • 0 Edge'), findsOneWidget);
       await tester.tap(find.byTooltip('Open navigation menu'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cài đặt'));
@@ -222,7 +310,7 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.text('Rời bản nháp chưa xuất?'), findsNothing);
-      expect(find.textContaining('3 node / 0 cạnh'), findsOneWidget);
+      expect(find.textContaining('3 Node • 0 Edge'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       await tester.pumpAndSettle();
     },

@@ -50,6 +50,30 @@ class WayMarkApiService {
   );
   static const _requestTimeout = Duration(seconds: 15);
 
+  Future<http.Response> _privateResponse(
+    Future<http.Response> Function() send,
+  ) async {
+    AuthSession.checkWorkflow();
+    final token = AuthSession.accessToken, revision = AuthSession.revision;
+    if (AuthSession.expired) {
+      throw const WayMarkApiException(
+        'Phiên hết hạn. Đăng nhập lại; bản nháp được giữ.',
+        statusCode: 401,
+      );
+    }
+    final response = await send();
+    if (!AuthSession.isCurrent(token, revision)) {
+      throw const WayMarkApiException(
+        'Phiên đã thay đổi. Không áp dụng phản hồi cũ.',
+        statusCode: 401,
+      );
+    }
+    if (response.statusCode == 401) {
+      AuthSession.rejectUnauthorized(token, revision);
+    }
+    return response;
+  }
+
   static String get baseUrl {
     if (_configuredBaseUrl.isNotEmpty) {
       return _configuredBaseUrl.replaceFirst(RegExp(r'/+$'), '');
@@ -63,10 +87,11 @@ class WayMarkApiService {
   Future<List<Map<String, dynamic>>> _mapList(String path) async {
     final uri = Uri.parse('$baseUrl/Maps/$path');
     try {
-      final response =
-          await (client?.get(uri, headers: _headers()) ??
-                  http.get(uri, headers: _headers()))
-              .timeout(_timeout);
+      final response = await _privateResponse(
+        () =>
+            client?.get(uri, headers: _headers()) ??
+            http.get(uri, headers: _headers()),
+      ).timeout(_timeout);
       if (response.statusCode != 200) {
         throw WayMarkApiException(
           response.statusCode == 401
@@ -109,13 +134,11 @@ class WayMarkApiService {
   Future<List<WayMark>> getWayMarks() async {
     late final http.Response response;
     try {
-      response =
-          await (client?.get(
-                    Uri.parse('$baseUrl/WayMarks'),
-                    headers: _headers(),
-                  ) ??
-                  http.get(Uri.parse('$baseUrl/WayMarks'), headers: _headers()))
-              .timeout(_requestTimeout);
+      response = await _privateResponse(
+        () =>
+            client?.get(Uri.parse('$baseUrl/WayMarks'), headers: _headers()) ??
+            http.get(Uri.parse('$baseUrl/WayMarks'), headers: _headers()),
+      ).timeout(_requestTimeout);
     } on Exception catch (error) {
       throw Exception(
         'Không thể kết nối WayMark API tại $baseUrl. '
@@ -147,12 +170,12 @@ class WayMarkApiService {
     final encodedCode = Uri.encodeComponent(code.trim());
     late final http.Response response;
     try {
-      response = await http
-          .get(
-            Uri.parse('$baseUrl/WayMarks/code/$encodedCode'),
-            headers: _headers(),
-          )
-          .timeout(_requestTimeout);
+      response = await _privateResponse(
+        () => http.get(
+          Uri.parse('$baseUrl/WayMarks/code/$encodedCode'),
+          headers: _headers(),
+        ),
+      ).timeout(_requestTimeout);
     } on Exception catch (error) {
       throw Exception(
         'Không thể kết nối WayMark API tại $baseUrl. Chi tiết: $error',
@@ -278,7 +301,9 @@ class WayMarkApiService {
   }) async {
     late final http.Response response;
     try {
-      response = await send().timeout(_timeout);
+      response = await _privateResponse(send).timeout(_timeout);
+    } on WayMarkApiException {
+      rethrow;
     } on TimeoutException {
       throw const WayMarkApiException(
         'API phản hồi quá lâu. Vui lòng thử lại.',
@@ -391,7 +416,9 @@ class WayMarkApiService {
     Future<http.Response> Function() request,
   ) async {
     try {
-      return await request().timeout(_requestTimeout);
+      return await _privateResponse(request).timeout(_requestTimeout);
+    } on WayMarkApiException {
+      rethrow;
     } on Exception catch (error) {
       throw WayMarkApiException(
         'Không thể kết nối WayMark API tại $baseUrl. '

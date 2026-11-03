@@ -8,6 +8,9 @@ import '../../core/theme/app_colors.dart';
 import '../../services/waymark_api_service.dart';
 import '../../models/route_models.dart';
 import '../search/search_page.dart';
+import '../../services/published_map_api_service.dart';
+import '../../services/navigation_history_service.dart';
+import '../search/local_map_search_page.dart';
 
 /// WayMarkCode has no narrower format constraint in the API model.
 /// Keep its server contract: a trimmed, non-empty value of at most 100
@@ -24,11 +27,26 @@ String? normalizeWayMarkQrCode(String? rawValue) {
 }
 
 class ScannerPage extends StatefulWidget {
-  const ScannerPage({super.key, this.api, this.selectStartOnly = false})
-    : verifyingNavigation = false;
+  const ScannerPage({
+    super.key,
+    this.api,
+    this.selectStartOnly = false,
+    this.publishedApi,
+  }) : verifyingNavigation = false,
+       captureOnly = false;
   const ScannerPage.verifyLocation({super.key, this.api})
     : selectStartOnly = true,
-      verifyingNavigation = true;
+      verifyingNavigation = true,
+      captureOnly = false,
+      publishedApi = null;
+  const ScannerPage.capture({super.key})
+    : api = null,
+      publishedApi = null,
+      selectStartOnly = true,
+      verifyingNavigation = false,
+      captureOnly = true;
+  final PublishedMapApiService? publishedApi;
+  final bool captureOnly;
   final WayMarkApiService? api;
   final bool selectStartOnly;
   final bool verifyingNavigation;
@@ -56,6 +74,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   String? _cameraOperationError;
   late final WayMarkApiService _api = widget.api ?? WayMarkApiService();
   WayMarkMapLocation? _wayMark;
+  PublishedMapSession? _published;
   String? _scannedCode;
   String? _message;
   bool _notFound = false;
@@ -148,6 +167,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         .firstWhere((value) => value.trim().isNotEmpty, orElse: () => '');
     if (rawValue.isEmpty) return;
 
+    await _handlePayload(rawValue);
+  }
+
+  Future<void> _handlePayload(String rawValue) async {
+    if (_lookupStarted || !mounted) return;
+
     _lookupStarted = true;
     setState(() {
       _isLoading = true;
@@ -160,6 +185,36 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
     try {
       await _stopCameraForLifecycle();
+      if (widget.captureOnly) {
+        if (mounted) Navigator.pop(context, rawValue.trim());
+        return;
+      }
+      if (rawValue.trim().startsWith('WMQR1:') ||
+          publicQrToken(rawValue) != null) {
+        if (widget.selectStartOnly) {
+          throw const WayMarkApiException(
+            'QR thuộc bản đồ Published khác luồng WayMark cũ. Không đổi tiến độ.',
+            statusCode: 409,
+          );
+        }
+        final session =
+            await (widget.publishedApi ??
+                    PublishedMapApiService(client: widget.api?.client))
+                .loadQr(rawValue);
+        if (!mounted) return;
+        recordPublishedScan(
+          session,
+          service: NavigationHistoryService(
+            client: widget.publishedApi?.client ?? widget.api?.client,
+            baseUrl: widget.publishedApi?.baseUrl,
+          ),
+        );
+        setState(() {
+          _published = session;
+          _isLoading = false;
+        });
+        return;
+      }
       final code = normalizeWayMarkQrCode(rawValue);
       if (code == null) {
         if (!mounted) return;
@@ -219,6 +274,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         _isLoading = false;
         _cameraStarting = true;
         _wayMark = null;
+        _published = null;
         _scannedCode = null;
         _message = null;
         _notFound = false;
@@ -291,10 +347,56 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final hasResult = _wayMark != null || _message != null;
+    final hasResult =
+        _wayMark != null || _published != null || _message != null;
     return Scaffold(
       backgroundColor: hasResult ? AppColors.background : Colors.black,
-      body: hasResult ? _buildResult() : _buildScanner(),
+      body: _published != null
+          ? _publishedResult()
+          : hasResult
+          ? _buildResult()
+          : _buildScanner(),
+    );
+  }
+
+  Widget _publishedResult() {
+    final session = _published!;
+    final start = session.map.startChoices.singleWhere(
+      (n) => n.key == session.startKey,
+    );
+    return SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          const Icon(Icons.qr_code_2, size: 64),
+          const Text(
+            'Đã tải snapshot Published',
+            style: TextStyle(fontSize: 22),
+          ),
+          Text('v${session.version} • ${start.label}'),
+          const Text(
+            'QR đối chiếu vị trí tại thời điểm quét; chưa xác minh lối đi thực tế hoặc an toàn xe lăn.',
+          ),
+          FilledButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => LocalMapSearchPage(
+                  map: session.map,
+                  destinationFloors: session.project.floors,
+                  initialStart: session.startKey,
+                ),
+              ),
+            ),
+            child: const Text('Chọn điểm đến'),
+          ),
+          OutlinedButton(onPressed: _scanAgain, child: const Text('Quét lại')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Quay lại'),
+          ),
+        ],
+      ),
     );
   }
 

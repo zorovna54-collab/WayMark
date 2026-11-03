@@ -1,0 +1,23 @@
+{
+  "runId": "00000000-0000-0000-0000-000000000000",
+  "expectedServerName": "",
+  "siteId": 0,
+  "floorIds": [
+    0,
+    0
+  ],
+  "creatorA": {
+    "id": "",
+    "userName": ""
+  },
+  "creatorB": {
+    "id": "",
+    "userName": ""
+  },
+  "imageRoot": "",
+  "writesApproved": false,
+  "creatorScopeAcknowledgement": null,
+  "localDevelopmentCertificateExceptionApproved": false,
+  "localDevelopmentSysadminRuntimeExceptionApproved": false,
+  "expectedWindowsIdentity": null
+}

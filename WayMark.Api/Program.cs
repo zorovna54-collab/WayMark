@@ -5,18 +5,24 @@ using Microsoft.OpenApi;
 using WayMark.Api.Services;
 using WayMark.Api.Services.Routing;
 using WayMark.Api.Security;
+using WayMark.Api.Services.MapDrafts;
 
 var builder = WebApplication.CreateBuilder(args);
+var e2e = E2ESafetyProfile.ReadAndApply(builder.Configuration, builder.Environment);
 builder.Services.AddWayMarkSecurity(builder.Configuration);
+builder.Services.AddPasswordResetLimits();
+builder.Services.Configure<DataProtectionTokenProviderOptions>(o => o.TokenLifespan = TimeSpan.FromMinutes(30));
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddControllers();
 builder.Services.Configure<EmailTestOptions>(
     builder.Configuration.GetSection(EmailTestOptions.SectionName));
-builder.Services.AddScoped<ISmtpEmailService, SmtpEmailService>();
+if (e2e is null) builder.Services.AddScoped<ISmtpEmailService, SmtpEmailService>();
+else builder.Services.AddScoped<ISmtpEmailService, E2EDisabledEmail>();
 builder.Services.AddSingleton<DijkstraRouter>();
 builder.Services.AddScoped<IRoutePlanner, RoutePlanner>();
+builder.Services.AddMapDraftFoundation(builder.Configuration);
 
 builder.Services.AddSwaggerGen(options =>
 {
@@ -46,15 +52,10 @@ builder.Services.AddCors(options => options.AddPolicy("Development", policy =>
             Uri.TryCreate(origin, UriKind.Absolute, out var uri) && uri.IsLoopback)
         .WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
         .AllowAnyHeader()));
-builder.Services.AddDbContext<WayMarkDbContext>(options =>
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("WayMarkDatabase"),
-        sqlServer => sqlServer.MigrationsHistoryTable("__EFMigrationsHistory")));
-
-builder.Services.AddDbContext<AuthDbContext>(options =>
-    options.UseSqlServer(
-        builder.Configuration.GetConnectionString("WayMarkDatabase"),
-        sqlServer => sqlServer.MigrationsHistoryTable("__AuthMigrationsHistory")));
+if (e2e is not null)
+    builder.Services.AddCors(options => options.AddPolicy("MapDraftE2E", policy =>
+        policy.WithOrigins(e2e.AllowedOrigin).WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS").AllowAnyHeader()));
+builder.Services.AddWayMarkDatabases(builder.Configuration, e2e);
 builder.Services
     .AddIdentityCore<IdentityUser>(options =>
     {
@@ -67,23 +68,27 @@ builder.Services
         options.User.RequireUniqueEmail = false;
     })
     .AddRoles<IdentityRole>()
-    .AddEntityFrameworkStores<AuthDbContext>();
+    .AddEntityFrameworkStores<AuthDbContext>()
+    .AddDefaultTokenProviders();
+builder.Services.AddE2EStartupCheck(e2e);
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() || e2e is not null)
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
 app.UseHttpsRedirection();
-if (app.Environment.IsDevelopment())
+if (e2e is not null) app.UseCors("MapDraftE2E");
+else if (app.Environment.IsDevelopment())
 {
     app.UseCors("Development");
 }
 
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapControllers();

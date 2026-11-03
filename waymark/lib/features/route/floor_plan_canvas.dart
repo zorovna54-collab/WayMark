@@ -9,7 +9,10 @@ Size containedFloorSize(Size image, Size viewport) {
 class FloorPlanCanvas extends StatefulWidget {
   const FloorPlanCanvas({
     super.key,
-    required this.painter,
+    this.painter,
+    this.painterBuilder,
+    this.sceneOverlayBuilder,
+    this.onViewMetrics,
     this.image,
     this.onPoint,
     this.onDragStart,
@@ -17,8 +20,13 @@ class FloorPlanCanvas extends StatefulWidget {
     this.onDragEnd,
     this.onDragCancel,
     this.canvasKey = const Key('floor-route-canvas'),
-  });
-  final CustomPainter painter;
+  }) : assert(painter != null || painterBuilder != null);
+  final CustomPainter? painter;
+  final CustomPainter Function(double viewScale)? painterBuilder;
+
+  /// Overlay shares the contained scene and InteractiveViewer transform.
+  final Widget Function(double viewScale)? sceneOverlayBuilder;
+  final void Function(Size sceneSize, double viewScale)? onViewMetrics;
   final ImageProvider? image;
   final ValueChanged<Offset>? onPoint;
   final bool Function(Offset)? onDragStart;
@@ -39,6 +47,7 @@ class _FloorPlanCanvasState extends State<FloorPlanCanvas> {
   int _generation = 0;
   Size? _viewport;
   int? _dragPointer;
+  final _pointers = <int>{};
 
   @override
   void didChangeDependencies() {
@@ -136,119 +145,148 @@ class _FloorPlanCanvasState extends State<FloorPlanCanvas> {
                     ),
               viewport,
             );
-            return Stack(
-              children: [
-                Positioned.fill(
-                  child: InteractiveViewer(
-                    transformationController: _transform,
-                    panEnabled: _dragPointer == null,
-                    scaleEnabled: _dragPointer == null,
-                    minScale: 1,
-                    maxScale: 5,
-                    child: Center(
-                      child: SizedBox(
-                        width: size.width,
-                        height: size.height,
-                        child: loading
-                            ? const Center(child: CircularProgressIndicator())
-                            : Listener(
-                                behavior: HitTestBehavior.opaque,
-                                onPointerDown: widget.onDragStart == null
-                                    ? null
-                                    : (event) {
-                                        final point = Offset(
-                                          event.localPosition.dx / size.width,
-                                          event.localPosition.dy / size.height,
-                                        );
-                                        if (_dragPointer == null &&
-                                            widget.onDragStart!(point)) {
-                                          setState(
-                                            () => _dragPointer = event.pointer,
-                                          );
+            return AnimatedBuilder(
+              animation: _transform,
+              builder: (context, _) {
+                final scale = _transform.value.getMaxScaleOnAxis();
+                widget.onViewMetrics?.call(size, scale);
+                return Stack(
+                  children: [
+                    Positioned.fill(
+                      child: InteractiveViewer(
+                        transformationController: _transform,
+                        panEnabled: _dragPointer == null,
+                        scaleEnabled: _dragPointer == null,
+                        minScale: 1,
+                        maxScale: 5,
+                        child: Center(
+                          child: SizedBox(
+                            width: size.width,
+                            height: size.height,
+                            child: loading
+                                ? const Center(
+                                    child: CircularProgressIndicator(),
+                                  )
+                                : Listener(
+                                    behavior: HitTestBehavior.opaque,
+                                    onPointerDown: (event) {
+                                      _pointers.add(event.pointer);
+                                      if (_pointers.length > 1) {
+                                        if (_dragPointer != null) {
+                                          widget.onDragCancel?.call();
+                                          setState(() => _dragPointer = null);
                                         }
-                                      },
-                                onPointerMove: (event) {
-                                  if (_dragPointer == event.pointer) {
-                                    widget.onDragUpdate?.call(
-                                      Offset(
-                                        (event.localPosition.dx / size.width)
-                                            .clamp(0, 1),
-                                        (event.localPosition.dy / size.height)
-                                            .clamp(0, 1),
-                                      ),
-                                    );
-                                  }
-                                },
-                                onPointerUp: (event) {
-                                  if (_dragPointer != event.pointer) return;
-                                  widget.onDragEnd?.call();
-                                  setState(() => _dragPointer = null);
-                                },
-                                onPointerCancel: (event) {
-                                  if (_dragPointer != event.pointer) return;
-                                  widget.onDragCancel?.call();
-                                  setState(() => _dragPointer = null);
-                                },
-                                child: GestureDetector(
-                                  onTapUp: widget.onPoint == null
-                                      ? null
-                                      : (details) => widget.onPoint!(
+                                        return;
+                                      }
+                                      final point = Offset(
+                                        event.localPosition.dx / size.width,
+                                        event.localPosition.dy / size.height,
+                                      );
+                                      if (_dragPointer == null &&
+                                          (widget.onDragStart?.call(point) ??
+                                              false)) {
+                                        setState(
+                                          () => _dragPointer = event.pointer,
+                                        );
+                                      }
+                                    },
+                                    onPointerMove: (event) {
+                                      if (_dragPointer == event.pointer) {
+                                        widget.onDragUpdate?.call(
                                           Offset(
-                                            (details.localPosition.dx /
+                                            (event.localPosition.dx /
                                                     size.width)
                                                 .clamp(0, 1),
-                                            (details.localPosition.dy /
+                                            (event.localPosition.dy /
                                                     size.height)
                                                 .clamp(0, 1),
                                           ),
-                                        ),
-                                  child: RepaintBoundary(
-                                    key: const Key('floor-plan-surface'),
-                                    child: Stack(
-                                      fit: StackFit.expand,
-                                      children: [
-                                        if (frame == null || !_showImage)
-                                          CustomPaint(
-                                            painter: _FloorGridPainter(),
-                                          ),
-                                        if (frame != null && _showImage)
-                                          CustomPaint(
-                                            key: const Key(
-                                              'floor-plan-image-layer',
-                                            ),
-                                            painter: FloorPlanImagePainter(
-                                              frame,
-                                            ),
-                                          ),
-                                        if (frame == null || !_showImage)
-                                          Align(
-                                            alignment: Alignment.topLeft,
-                                            child: Text(
-                                              !_showImage
-                                                  ? 'Đã ẩn ảnh mặt bằng — tọa độ graph được giữ nguyên'
-                                                  : _imageFailed
-                                                  ? 'Không render được ảnh mặt bằng. Hãy thử chọn lại ảnh.'
-                                                  : 'Sơ đồ node — chưa có ảnh tầng',
-                                              style: const TextStyle(
-                                                fontSize: 10,
-                                                color: Colors.blueGrey,
+                                        );
+                                      }
+                                    },
+                                    onPointerUp: (event) {
+                                      _pointers.remove(event.pointer);
+                                      if (_dragPointer != event.pointer) return;
+                                      widget.onDragEnd?.call();
+                                      setState(() => _dragPointer = null);
+                                    },
+                                    onPointerCancel: (event) {
+                                      _pointers.remove(event.pointer);
+                                      if (_dragPointer != event.pointer) return;
+                                      widget.onDragCancel?.call();
+                                      setState(() => _dragPointer = null);
+                                    },
+                                    child: GestureDetector(
+                                      onTapUp: widget.onPoint == null
+                                          ? null
+                                          : (details) => widget.onPoint!(
+                                              Offset(
+                                                (details.localPosition.dx /
+                                                        size.width)
+                                                    .clamp(0, 1),
+                                                (details.localPosition.dy /
+                                                        size.height)
+                                                    .clamp(0, 1),
                                               ),
                                             ),
-                                          ),
-                                        CustomPaint(
-                                          key: widget.canvasKey,
-                                          painter: widget.painter,
+                                      child: RepaintBoundary(
+                                        key: const Key('floor-plan-surface'),
+                                        child: Stack(
+                                          fit: StackFit.expand,
+                                          children: [
+                                            if (frame == null || !_showImage)
+                                              CustomPaint(
+                                                painter: _FloorGridPainter(),
+                                              ),
+                                            if (frame != null && _showImage)
+                                              CustomPaint(
+                                                key: const Key(
+                                                  'floor-plan-image-layer',
+                                                ),
+                                                painter: FloorPlanImagePainter(
+                                                  frame,
+                                                ),
+                                              ),
+                                            if (frame == null || !_showImage)
+                                              Align(
+                                                alignment: Alignment.topLeft,
+                                                child: Text(
+                                                  !_showImage
+                                                      ? 'Đã ẩn ảnh mặt bằng — tọa độ graph được giữ nguyên'
+                                                      : _imageFailed
+                                                      ? 'Không render được ảnh mặt bằng. Hãy thử chọn lại ảnh.'
+                                                      : 'Sơ đồ node — chưa có ảnh tầng',
+                                                  style: const TextStyle(
+                                                    fontSize: 10,
+                                                    color: Colors.blueGrey,
+                                                  ),
+                                                ),
+                                              ),
+                                            CustomPaint(
+                                              key: widget.canvasKey,
+                                              painter:
+                                                  widget.painterBuilder?.call(
+                                                    scale,
+                                                  ) ??
+                                                  widget.painter,
+                                            ),
+                                            if (widget.sceneOverlayBuilder !=
+                                                null)
+                                              widget.sceneOverlayBuilder!(
+                                                scale,
+                                              ),
+                                          ],
                                         ),
-                                      ],
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             );
           },
         ),

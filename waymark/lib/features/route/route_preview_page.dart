@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'dart:async';
+
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/map_ui_theme.dart';
 import '../../models/route_models.dart';
@@ -10,6 +12,8 @@ import '../navigation/manual_navigation.dart';
 import 'floor_route_map.dart';
 import 'floor_route_geometry.dart';
 import 'route_preferences.dart';
+import 'demo_floor_plan.dart';
+import '../navigation/local_map_navigation.dart';
 
 class RoutePreviewPage extends StatefulWidget {
   const RoutePreviewPage({
@@ -19,11 +23,59 @@ class RoutePreviewPage extends StatefulWidget {
     this.accessibleOnly = false,
     this.api,
     this.options = const RoutingOptions(),
-  });
+    this.destinationRoom,
+  }) : localMap = null,
+       localStartCode = null,
+       localPlaceId = null,
+       localDestinationNodeId = null,
+       localDestinationFloorId = null,
+       localDestinationName = null;
   final String startWayMarkCode, destinationWayMarkCode;
   final bool accessibleOnly;
   final WayMarkApiService? api;
   final RoutingOptions options;
+  final VerifiedDemoRoom? destinationRoom;
+  final LocalMapNavigation? localMap;
+  final String? localStartCode, localPlaceId;
+  final int? localDestinationNodeId, localDestinationFloorId;
+  final String? localDestinationName;
+  const RoutePreviewPage.local({
+    super.key,
+    required LocalMapNavigation map,
+    required String startNodeCode,
+    required String placeId,
+  }) : localMap = map,
+       localStartCode = startNodeCode,
+       localPlaceId = placeId,
+       localDestinationNodeId = null,
+       localDestinationFloorId = null,
+       localDestinationName = null,
+       startWayMarkCode = '',
+       destinationWayMarkCode = '',
+       accessibleOnly = false,
+       api = null,
+       options = const RoutingOptions(),
+       destinationRoom = null;
+
+  const RoutePreviewPage.localNode({
+    super.key,
+    required LocalMapNavigation map,
+    required String startNodeCode,
+    required int destinationNodeId,
+    required int destinationFloorId,
+    required String destinationName,
+  }) : localMap = map,
+       localStartCode = startNodeCode,
+       localPlaceId = null,
+       localDestinationNodeId = destinationNodeId,
+       localDestinationFloorId = destinationFloorId,
+       localDestinationName = destinationName,
+       startWayMarkCode = '',
+       destinationWayMarkCode = '',
+       accessibleOnly = false,
+       api = null,
+       options = const RoutingOptions(),
+       destinationRoom = null;
 
   @override
   State<RoutePreviewPage> createState() => _RoutePreviewPageState();
@@ -62,6 +114,8 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
           builder: (_) => NavigationPage(
             route: route,
             api: _api,
+            destinationRoom: widget.destinationRoom,
+            localMap: widget.localMap,
             onRouteChanged: (replacement) {
               if (!mounted) return;
               setState(() {
@@ -78,14 +132,42 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
   }
 
   Future<WayMarkRoute> _loadRoute() {
-    final request = _api.findRoute(
-      RouteRequest(
-        startWayMarkCode: _startCode,
-        destinationWayMarkCode: widget.destinationWayMarkCode,
-        options: _options,
-      ),
-      accessibleOnly: widget.accessibleOnly,
-    );
+    if (widget.localMap case final map?) {
+      final request = Future<WayMarkRoute>.sync(() {
+        final placeId = widget.localPlaceId;
+        if (placeId != null) {
+          return map.routeToRoom(widget.localStartCode!, placeId);
+        }
+        return map.routeToNode(
+          widget.localStartCode!,
+          widget.localDestinationNodeId!,
+          widget.localDestinationFloorId!,
+        );
+      });
+      request.then((route) {
+        unawaited(map.historySession?.select(route) ?? Future.value());
+      }).ignore();
+      request.ignore();
+      return request;
+    }
+    final request = _api
+        .findRoute(
+          RouteRequest(
+            startWayMarkCode: _startCode,
+            destinationWayMarkCode: widget.destinationWayMarkCode,
+            options: _options,
+          ),
+          accessibleOnly: widget.accessibleOnly,
+        )
+        .then((route) {
+          if (widget.destinationRoom != null &&
+              !widget.destinationRoom!.matchesRoute(route)) {
+            throw const WayMarkApiException(
+              'Cửa phòng demo không còn khớp tuyến API. Hãy tải lại danh sách điểm đến.',
+            );
+          }
+          return route;
+        });
     // Observe immediately: a fast failure can precede the next frame after a
     // dialog closes. FutureBuilder still receives this same future and shows
     // the error; disposed/replaced requests cannot emit an unhandled error.
@@ -102,51 +184,73 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Material(
-                    color: AppColors.card,
-                    shape: const CircleBorder(),
-                    child: IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(
-                        Icons.arrow_back,
-                        color: AppColors.primary,
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Material(
+                            color: AppColors.card,
+                            shape: const CircleBorder(),
+                            child: IconButton(
+                              tooltip: 'Quay lại',
+                              onPressed: () => Navigator.pop(context),
+                              icon: const Icon(
+                                Icons.arrow_back,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          const Flexible(
+                            child: Text(
+                              'Xem trước tuyến đường',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ),
+                          if (widget.localMap == null)
+                            IconButton(
+                              tooltip: 'Tùy chọn tuyến',
+                              icon: const Icon(Icons.tune),
+                              onPressed: () async {
+                                final selected = await showRoutePreferences(
+                                  context,
+                                  _options,
+                                );
+                                if (!mounted || selected == null) return;
+                                setState(() {
+                                  _options = selected;
+                                  _route = _loadRoute();
+                                });
+                              },
+                            ),
+                        ],
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  const Flexible(
-                    child: Text(
-                      'Xem trước tuyến đường',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.primary,
+                    if (widget.localMap != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Text(
+                          widget.localMap!.publication == null
+                              ? 'Xem trước bản đồ • cục bộ • chưa xác minh lối đi / xe lăn'
+                              : '${widget.localMap!.personalPublication ? 'Cá nhân/demo — không đại diện cơ sở • ' : ''}Snapshot Published v${widget.localMap!.publication!.version} • chưa xác minh lối đi / xe lăn',
+                          key: const Key('local-preview-banner'),
+                        ),
                       ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Tùy chọn tuyến',
-                    icon: const Icon(Icons.tune),
-                    onPressed: () async {
-                      final selected = await showRoutePreferences(
-                        context,
-                        _options,
-                      );
-                      if (!mounted || selected == null) return;
-                      setState(() {
-                        _options = selected;
-                        _route = _loadRoute();
-                      });
-                    },
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
             Expanded(
+              flex: 3,
               child: FutureBuilder<WayMarkRoute>(
                 future: _route,
                 builder: (context, snapshot) {
@@ -187,7 +291,12 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
               color: AppColors.textMuted,
             ),
             const SizedBox(height: 16),
-            Text('$error', textAlign: TextAlign.center),
+            Text(
+              widget.localMap != null && error is FormatException
+                  ? error.message
+                  : '$error',
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 16),
             if (needsLogin)
               ElevatedButton(
@@ -221,7 +330,12 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
         child: SingleChildScrollView(
           key: const Key('preview-map-scroll'),
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 230),
-          child: FloorRouteMap(route: route, api: _api),
+          child: FloorRouteMap(
+            route: route,
+            api: _api,
+            compact: true,
+            localMap: widget.localMap,
+          ),
         ),
       ),
       DraggableScrollableSheet(
@@ -273,7 +387,8 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          route.destination.name,
+                          widget.destinationRoom?.room.name ??
+                              route.destination.name,
                           style: const TextStyle(
                             fontSize: 19,
                             color: AppColors.primary,
@@ -281,7 +396,9 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
                           ),
                         ),
                         Text(
-                          route.destination.location,
+                          widget.destinationRoom == null
+                              ? route.destination.location
+                              : 'Demo Map • đến cửa Entrance, không phải tâm phòng',
                           style: const TextStyle(
                             fontSize: 12,
                             color: AppColors.textSecondary,
@@ -303,28 +420,31 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
                 ],
               ),
               const SizedBox(height: 8),
-              Text('Xuất phát: ${route.start.name}'),
+              Text(
+                'Xuất phát: ${route.start.name} • ${route.nodes.first.floor.name}',
+              ),
               if (route.accessibleOnly)
                 const Text(
                   'Chỉ các cạnh được đánh dấu accessible; không phải xác nhận an toàn xe lăn.',
                 ),
               if (route.options.avoidStairs)
                 const Text('Hạn chế: không đi qua cầu thang.'),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  final selected = await showRoutePreferences(
-                    context,
-                    _options,
-                  );
-                  if (!mounted || selected == null) return;
-                  setState(() {
-                    _options = selected;
-                    _route = _loadRoute();
-                  });
-                },
-                icon: const Icon(Icons.accessibility_new),
-                label: Text(routingOptionsLabel(route.options)),
-              ),
+              if (widget.localMap == null)
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final selected = await showRoutePreferences(
+                      context,
+                      _options,
+                    );
+                    if (!mounted || selected == null) return;
+                    setState(() {
+                      _options = selected;
+                      _route = _loadRoute();
+                    });
+                  },
+                  icon: const Icon(Icons.accessibility_new),
+                  label: Text(routingOptionsLabel(route.options)),
+                ),
               Text(
                 '${route.edges.length} chặng • ${floorVisits(route).map((visit) => visit.floor.floorCode).join(' → ')}',
               ),
@@ -334,14 +454,16 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
               ),
               if (route.edges.isEmpty)
                 const Text('Điểm xuất phát và điểm đến cùng một node.'),
-              Text(
-                'QR xuất phát: ${route.start.wayMarkCode}',
-                style: const TextStyle(fontSize: 12),
-              ),
-              Text(
-                'WayMark đích: ${route.destination.wayMarkCode}',
-                style: const TextStyle(fontSize: 12),
-              ),
+              if (widget.localMap == null)
+                Text(
+                  'QR xuất phát: ${route.start.wayMarkCode}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              if (widget.localMap == null)
+                Text(
+                  'WayMark đích: ${route.destination.wayMarkCode}',
+                  style: const TextStyle(fontSize: 12),
+                ),
               for (var i = 0; i < route.nodes.length; i++) ...[
                 ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -375,10 +497,19 @@ class _RoutePreviewPageState extends State<RoutePreviewPage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (ManualNavigation.validate(route) case final issue?)
+            if (ManualNavigation.validate(
+                  route,
+                  localPreview: widget.localMap?.owns(route) == true,
+                )
+                case final issue?)
               Text(issue, style: const TextStyle(color: Colors.redAccent)),
             ElevatedButton(
-              onPressed: ManualNavigation.validate(route) == null
+              onPressed:
+                  ManualNavigation.validate(
+                        route,
+                        localPreview: widget.localMap?.owns(route) == true,
+                      ) ==
+                      null
                   ? () => _startNavigation(route)
                   : null,
               style: ElevatedButton.styleFrom(

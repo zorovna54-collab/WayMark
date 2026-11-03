@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -63,8 +64,10 @@ public sealed class AdminAuthorizationTests : IAsyncLifetime
                 {
                     options.Password.RequiredLength = 8;
                     options.Password.RequireNonAlphanumeric = false;
-                }).AddRoles<IdentityRole>().AddEntityFrameworkStores<AuthDbContext>();
+                }).AddRoles<IdentityRole>().AddEntityFrameworkStores<AuthDbContext>().AddDefaultTokenProviders();
+                services.AddDataProtection().UseEphemeralDataProtectionProvider();
                 services.AddWayMarkSecurity(configuration);
+                services.AddPasswordResetLimits();
                 services.AddSingleton<DijkstraRouter>();
                 services.AddScoped<IRoutePlanner, RoutePlanner>();
                 services.AddSingleton<ISmtpEmailService>(email);
@@ -72,6 +75,7 @@ public sealed class AdminAuthorizationTests : IAsyncLifetime
             }).Configure(app =>
             {
                 app.UseRouting();
+                app.UseRateLimiter();
                 app.UseAuthentication();
                 app.UseAuthorization();
                 app.UseEndpoints(endpoints => endpoints.MapControllers());
@@ -133,6 +137,7 @@ public sealed class AdminAuthorizationTests : IAsyncLifetime
         Assert.Equal(status, (int)response.StatusCode);
         Assert.Equal(before, await Snapshot());
         Assert.Equal(0, email.Calls);
+        Assert.Equal(0, email.PasswordResetCalls);
     }
 
     [Theory]
@@ -240,26 +245,69 @@ public sealed class AdminAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
-    public void EveryNonAuthNonRoutingWriteActionRequiresAdminPolicy()
+    public void EveryWriteActionRequiresItsExplicitAdminResourceOrSelfProfileAuthorization()
     {
         var controllers = typeof(WayMarksController).Assembly.GetTypes()
             .Where(type => !type.IsAbstract && typeof(ControllerBase).IsAssignableFrom(type));
         var protectedActions = 0;
+        var authorActions = 0;
+        var selfProfileActions = 0;
+        var personalActions = 0;
+        var accountSecurityActions = 0;
+        var privateHistoryActions = 0;
         foreach (var controller in controllers)
         foreach (var method in controller.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
         {
             if (!method.GetCustomAttributes<HttpMethodAttribute>().Any(attribute =>
                     attribute.HttpMethods.Any(verb => verb is "POST" or "PUT" or "PATCH" or "DELETE"))) continue;
-            if (controller == typeof(AuthController) && method.Name is "Login" or "Register") continue;
+            if (controller == typeof(AuthController) && method.Name is "Login" or "Register" or "ForgotPassword" or "ResetPassword")
+            {
+                Assert.Single(method.GetCustomAttributes<AllowAnonymousAttribute>());
+                continue;
+            }
             if (controller == typeof(RoutesController) && method.Name == "FindRoute") continue;
+            if (controller == typeof(AuthController) && method.Name is "RequestEmailBinding" or "ConfirmEmailBinding" or "ChangeOwnPassword") {
+                Assert.Single(method.GetCustomAttributes<AuthorizeAttribute>());
+                Assert.Empty(method.GetCustomAttributes<AllowAnonymousAttribute>());
+                accountSecurityActions++; continue;
+            }
+            if (controller == typeof(NavigationHistoryController)) {
+                Assert.Single(controller.GetCustomAttributes<AuthorizeAttribute>());
+                Assert.Empty(controller.GetCustomAttributes<AllowAnonymousAttribute>());
+                privateHistoryActions++; continue; // HTTP tests verify per-subject access, including denial to other Admins.
+            }
+            if (controller == typeof(PersonalMapsController)) {
+                Assert.Single(controller.GetCustomAttributes<AuthorizeAttribute>());
+                Assert.Empty(controller.GetCustomAttributes<AllowAnonymousAttribute>());
+                Assert.Empty(method.GetCustomAttributes<AllowAnonymousAttribute>());
+                personalActions++;
+                continue; // HTTP tests verify user identity, new-scope-only grants and atomic rollback.
+            }
+            if (controller == typeof(AuthController) && method.Name == nameof(AuthController.UpdateMe)) {
+                Assert.Single(method.GetCustomAttributes<AuthorizeAttribute>());
+                Assert.Empty(method.GetCustomAttributes<AllowAnonymousAttribute>());
+                var parameter = Assert.Single(method.GetParameters());
+                Assert.Equal(typeof(UpdateProfileRequest), parameter.ParameterType);
+                Assert.Equal(new[] { "DisplayName" }, parameter.ParameterType.GetProperties().Select(p => p.Name));
+                selfProfileActions++;
+                continue; // Dedicated HTTP tests verify JWT subject binding and no privilege/identity writes.
+            }
             var authorization = controller.GetCustomAttributes<AuthorizeAttribute>()
                 .Concat(method.GetCustomAttributes<AuthorizeAttribute>());
-            Assert.Contains(authorization, attribute => attribute.Policy == WayMarkSecurity.AdminPolicy);
+            var mapAuthor = controller == typeof(MapDraftsController) || controller == typeof(MapProjectsController);
+            Assert.Contains(authorization, attribute => attribute.Policy == (mapAuthor
+                ? WayMarkSecurity.MapAuthorPolicy : WayMarkSecurity.AdminPolicy));
+            if (mapAuthor) authorActions++;
             Assert.Empty(controller.GetCustomAttributes<AllowAnonymousAttribute>());
             Assert.Empty(method.GetCustomAttributes<AllowAnonymousAttribute>());
             protectedActions++;
         }
-        Assert.Equal(4, protectedActions);
+        Assert.Equal(14, protectedActions); // Nine existing actions + five owner-scoped project/publish/QR actions.
+        Assert.Equal(10, authorActions); // Explicit exception only for floor/project resource authorization; four global writes stay AdminOnly.
+        Assert.Equal(1, selfProfileActions);
+        Assert.Equal(2, personalActions);
+        Assert.Equal(3, accountSecurityActions);
+        Assert.Equal(5, privateHistoryActions); // Scan, destination, start, end and delete; all JWT + per-subject.
     }
 
     private void SetToken(string? token) => client.DefaultRequestHeaders.Authorization =
@@ -330,6 +378,165 @@ public sealed class AdminAuthorizationTests : IAsyncLifetime
         });
     }
 
+    [Fact]
+    public async Task Profile_persists_display_name_but_cannot_change_roles_or_identity()
+    {
+        SetToken(await Login("reader-fixture"));
+        using var response = await client.PutAsJsonAsync("/api/Auth/me", new {
+            displayName = "  Người dùng thử  ", roles = new[] { "Admin" },
+            userName = "operator-fixture", email = "changed@example.invalid", emailVerified = true
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var profile = await client.GetFromJsonAsync<JsonElement>("/api/Auth/me");
+        Assert.Equal("Người dùng thử", profile.GetProperty("displayName").GetString());
+        Assert.Equal("reader-fixture", profile.GetProperty("userName").GetString());
+        Assert.False(profile.GetProperty("emailVerified").GetBoolean());
+        Assert.Empty(profile.GetProperty("roles").EnumerateArray());
+        using var scope = host.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+        var reader = (await users.FindByNameAsync("reader-fixture"))!;
+        Assert.Empty(await users.GetRolesAsync(reader));
+        Assert.NotEqual("changed@example.invalid", reader.Email);
+        Assert.DoesNotContain(await users.GetClaimsAsync((await users.FindByNameAsync("operator-fixture"))!), c => c.Type == "waymark:display_name");
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("expired")]
+    [InlineData("wrong-signature")]
+    [InlineData("forged")]
+    public async Task Profile_requires_a_valid_signed_JWT_without_mutation(string kind)
+    {
+        SetToken(kind switch {
+            "missing" => null,
+            "forged" => ForgeRole(await Login("reader-fixture")),
+            _ => SignedAdminToken(kind)
+        });
+        using var get = await client.GetAsync("/api/Auth/me");
+        using var put = await client.PutAsJsonAsync("/api/Auth/me", new { displayName = "must-not-save" });
+        Assert.Equal(HttpStatusCode.Unauthorized, get.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, put.StatusCode);
+        using var scope = host.Services.CreateScope();
+        var auth = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        Assert.False(await auth.UserClaims.AnyAsync(c => c.ClaimType == "waymark:display_name"));
+    }
+
+    [Fact]
+    public async Task Profile_rejects_invalid_names_and_displays_effective_roles()
+    {
+        SetToken(await Login("operator-fixture"));
+        foreach (var name in new[] { "  ", new string('x', 81), "name\nrole" }) {
+            using var response = await client.PutAsJsonAsync("/api/Auth/me", new { displayName = name });
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+        var profile = await client.GetFromJsonAsync<JsonElement>("/api/Auth/me");
+        Assert.Contains("Admin", profile.GetProperty("roles").EnumerateArray().Select(r => r.GetString()));
+    }
+
+    [Fact]
+    public async Task Password_reset_token_is_user_bound_single_use_and_changes_login()
+    {
+        using (var scope = host.Services.CreateScope()) {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+            Assert.True((await users.SetEmailAsync((await users.FindByNameAsync("reader-fixture"))!, "reader@example.invalid")).Succeeded);
+        }
+        using var sent = await client.PostAsJsonAsync("/api/Auth/forgot-password", new { usernameOrEmail = "reader-fixture" });
+        Assert.Equal(HttpStatusCode.OK, sent.StatusCode);
+        Assert.False(string.IsNullOrEmpty(email.ResetToken));
+        var next = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24)) + "aA1!";
+        using var wrongUser = await client.PostAsJsonAsync("/api/Auth/reset-password", new { usernameOrEmail = "operator-fixture", token = email.ResetToken, newPassword = next });
+        Assert.Equal(HttpStatusCode.BadRequest, wrongUser.StatusCode);
+        using var reset = await client.PostAsJsonAsync("/api/Auth/reset-password", new { usernameOrEmail = "reader-fixture", token = email.ResetToken, newPassword = next });
+        Assert.Equal(HttpStatusCode.OK, reset.StatusCode);
+        using var replay = await client.PostAsJsonAsync("/api/Auth/reset-password", new { usernameOrEmail = "reader-fixture", token = email.ResetToken, newPassword = next });
+        Assert.Equal(HttpStatusCode.BadRequest, replay.StatusCode);
+        using var oldLogin = await client.PostAsJsonAsync("/api/Auth/login", new { username = "reader-fixture", password });
+        Assert.Equal(HttpStatusCode.Unauthorized, oldLogin.StatusCode);
+        using var newLogin = await client.PostAsJsonAsync("/api/Auth/login", new { username = "reader-fixture", password = next });
+        Assert.Equal(HttpStatusCode.OK, newLogin.StatusCode);
+    }
+
+    [Fact]
+    public async Task Password_reset_requests_do_not_enumerate_accounts_and_are_rate_limited()
+    {
+        using var existing = await client.PostAsJsonAsync("/api/Auth/forgot-password", new { usernameOrEmail = "reader-fixture" });
+        using var missing = await client.PostAsJsonAsync("/api/Auth/forgot-password", new { usernameOrEmail = "absent-fixture" });
+        Assert.Equal(await existing.Content.ReadAsStringAsync(), await missing.Content.ReadAsStringAsync());
+        for (var i = 0; i < 3; i++) {
+            using var response = await client.PostAsJsonAsync("/api/Auth/forgot-password", new { usernameOrEmail = "absent-fixture" });
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+        using var limited = await client.PostAsJsonAsync("/api/Auth/reset-password", new { usernameOrEmail = "reader-fixture", token = "invalid", newPassword = "Wrong-test-only1" });
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+    }
+
+    [Fact]
+    public async Task Password_reset_rejects_expired_tokens_without_password_change()
+    {
+        using var scope = host.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+        var user = (await users.FindByNameAsync("reader-fixture"))!;
+        var options = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.DataProtectionTokenProviderOptions>>().Value;
+        options.TokenLifespan = TimeSpan.FromMilliseconds(1);
+        var token = await users.GeneratePasswordResetTokenAsync(user);
+        await Task.Delay(30);
+        using var response = await client.PostAsJsonAsync("/api/Auth/reset-password", new { usernameOrEmail = "reader-fixture", token, newPassword = "New-test-only1" });
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True(await users.CheckPasswordAsync((await users.FindByIdAsync(user.Id))!, password));
+    }
+
+    [Fact]
+    public async Task Password_reset_ambiguous_email_does_not_choose_an_account()
+    {
+        using (var scope = host.Services.CreateScope()) {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+            foreach (var name in new[] { "reader-fixture", "operator-fixture" })
+                Assert.True((await users.SetEmailAsync((await users.FindByNameAsync(name))!, "shared@example.invalid")).Succeeded);
+        }
+        using var shared = await client.PostAsJsonAsync("/api/Auth/forgot-password", new { usernameOrEmail = "shared@example.invalid" });
+        using var absent = await client.PostAsJsonAsync("/api/Auth/forgot-password", new { usernameOrEmail = "absent@example.invalid" });
+        Assert.Equal(HttpStatusCode.OK, shared.StatusCode);
+        Assert.Equal(await absent.Content.ReadAsStringAsync(), await shared.Content.ReadAsStringAsync());
+        Assert.Equal(0, email.PasswordResetCalls);
+        using var username = await client.PostAsJsonAsync("/api/Auth/forgot-password", new { usernameOrEmail = "reader-fixture" });
+        Assert.Equal(HttpStatusCode.OK, username.StatusCode);
+        Assert.Equal(1, email.PasswordResetCalls);
+    }
+
+    [Fact]
+    public async Task Anonymous_forgot_password_does_not_call_or_relax_Admin_email_endpoint_even_on_SMTP_failure()
+    {
+        using (var scope = host.Services.CreateScope()) {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+            Assert.True((await users.SetEmailAsync((await users.FindByNameAsync("reader-fixture"))!, "reset@example.invalid")).Succeeded);
+        }
+        SetToken(null); email.FailReset = true;
+        using var response = await client.PostAsJsonAsync("/api/Auth/forgot-password", new { usernameOrEmail = "reader-fixture" });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1, email.PasswordResetCalls); Assert.Equal(0, email.Calls);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsync("/api/Email/test", null)).StatusCode);
+        SetToken(await Login("reader-fixture"));
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync("/api/Email/test", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Map_author_role_revocation_is_effective_for_an_existing_JWT()
+    {
+        SetToken(await Login("operator-fixture"));
+        using (var scope = host.Services.CreateScope()) {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+            Assert.True((await users.RemoveFromRoleAsync((await users.FindByNameAsync("operator-fixture"))!, "Admin")).Succeeded);
+        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/admin/map-projects")).StatusCode);
+        var before = await Snapshot();
+        Assert.Equal(HttpStatusCode.Forbidden, (await Write("create")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Write("email")).StatusCode);
+        Assert.Equal(before, await Snapshot());
+        var me = await client.GetFromJsonAsync<JsonElement>("/api/Auth/me");
+        Assert.Empty(me.GetProperty("roles").EnumerateArray());
+        Assert.False(me.GetProperty("capabilities").GetProperty("isSystemAdmin").GetBoolean());
+    }
+
     public async Task DisposeAsync()
     {
         client.Dispose();
@@ -337,12 +544,54 @@ public sealed class AdminAuthorizationTests : IAsyncLifetime
         host.Dispose();
     }
 
+    [Fact]
+    public async Task PasswordResetEmailIsCountedSeparatelyWithoutSmtp()
+    {
+        using (var scope = host.Services.CreateScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+            var user = (await users.FindByNameAsync("reader-fixture"))!;
+            Assert.True((await users.SetEmailAsync(user, "reader@example.invalid")).Succeeded);
+        }
+        using var response = await client.PostAsJsonAsync("/api/Auth/forgot-password", new { usernameOrEmail = "reader-fixture" });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1, email.PasswordResetCalls);
+        Assert.Equal("reader@example.invalid", email.ResetRecipient);
+        Assert.Equal(0, email.Calls);
+        using var unknown = await client.PostAsJsonAsync("/api/Auth/forgot-password", new { usernameOrEmail = "unknown-fixture" });
+        Assert.Equal(HttpStatusCode.OK, unknown.StatusCode);
+        Assert.Equal(1, email.PasswordResetCalls);
+    }
+
+    [Fact]
+    public async Task AccountWithoutEmailDoesNotSendResetMail()
+    {
+        using var response = await client.PostAsJsonAsync("/api/Auth/forgot-password", new { usernameOrEmail = "reader-fixture" });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(0, email.PasswordResetCalls);
+        Assert.Equal(0, email.Calls);
+    }
+
     private sealed class CountingEmail : ISmtpEmailService
     {
         public int Calls { get; private set; }
+        public int PasswordResetCalls { get; private set; }
+        public string? ResetRecipient { get; private set; }
+        public string? ResetToken { get; private set; } // Isolated test memory only; never logged.
+        public bool FailReset { get; set; }
         public Task SendTestEmailAsync(DateTimeOffset sentAtUtc, CancellationToken cancellationToken)
         {
             Calls++;
+            return Task.CompletedTask;
+        }
+        public Task SendPasswordResetEmailAsync(string toEmail, string username,
+            string resetToken, string resetUrl, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PasswordResetCalls++;
+            ResetRecipient = toEmail;
+            ResetToken = resetToken;
+            if (FailReset) throw new SmtpEmailException(SmtpEmailFailure.Configuration, "Isolated missing SMTP config");
             return Task.CompletedTask;
         }
     }

@@ -1,0 +1,284 @@
+{
+  "Version": 1,
+  "Decision": "NO-GO",
+  "GeneratedUtc": "2026-10-21T01:33:58.8172148+00:00",
+  "Blockers": [
+    "Backend HAS_PERMS_BY_NAME server-class defect requires a separately approved source fix and regression tests.",
+    "Current SQL instance is Windows-authentication-only; choose an approved compatible isolated instance. No settings change is authorized.",
+    "Provisioning, migrations, fixtures, storage/ACL, private configuration and HTTPS trust still require explicit approval."
+  ],
+  "Files": [
+    {
+      "Path": "docs/database/e2e/00-ReadOnlyInventory.sql",
+      "Sha256": "9F6E208E3551219680835868CBA41F495EA0FBBA9FA99ECD6B7C1BE4B4B3913A"
+    },
+    {
+      "Path": "docs/database/e2e/01-ReadOnlyProtectedEvidence.sql",
+      "Sha256": "E67CF63B891F4D8D7F1E20F3047A600F8C510FD57BCA02A61327F22DFCA0BBC5"
+    },
+    {
+      "Path": "docs/database/e2e/10-CreateDatabase.sql",
+      "Sha256": "7335353B3CB3E287547A06B6A896405A1DB4C6503669E75B5287A2D63DA6B5B4"
+    },
+    {
+      "Path": "docs/database/e2e/20-CreateLogins.sql",
+      "Sha256": "EED7A0F8C4A3BB9519E4A5BE04FBC8031C2A8E8D03823A8E420635FE60DB2E61"
+    },
+    {
+      "Path": "docs/database/e2e/21-CreateUsersAndMigrationPermissions.sql",
+      "Sha256": "2E3A09CAA45ED4E6FBDD7745B281463005E269A19A62B0C6284D12F12389D8BB"
+    },
+    {
+      "Path": "docs/database/e2e/30-AuthSchema.sql",
+      "Sha256": "D40DAF29BAC3EC05AFE5EE53E6ECF9A183BDBD935C7E59A847B8C340B025527C"
+    },
+    {
+      "Path": "docs/database/e2e/31-WayMarkSchema.sql",
+      "Sha256": "AAC172CD0ECB5231FE94499CE9FB40F40459323BB95454A8F9CB313785FBEDB8"
+    },
+    {
+      "Path": "docs/database/e2e/40-RuntimePermissions.sql",
+      "Sha256": "6FAC7DDB4FF1F997DFB84FBDD43AA7652E6C10ABB1A7B3EAB0583B6EA88CCA8C"
+    },
+    {
+      "Path": "docs/database/e2e/50-BootstrapIdentity.sql",
+      "Sha256": "6BEEE7750E07F8B39BC6AFDD1DD8462F4419503064FF6DA2F1744FE266D9B7A7"
+    },
+    {
+      "Path": "docs/database/e2e/60-TestSitesAndMemberships.sql",
+      "Sha256": "050B2336F4CD7AA005556668BB6736F94EAED8D2793E99EE690D22F127493A32"
+    },
+    {
+      "Path": "docs/database/e2e/70-OptionalQrGraph.sql",
+      "Sha256": "341BBC330B343CB5DA9C16ADC7E020105BF82381191E42919710EEB4521985CF"
+    },
+    {
+      "Path": "docs/database/e2e/80-ReadOnlyVerification.sql",
+      "Sha256": "50173C1D57E4F230F8B24622A22A3D9EE7FEAE1E9CE4BC655B988967A2A0C825"
+    },
+    {
+      "Path": "docs/database/e2e/90-SealMigratorDatabasePermissions.sql",
+      "Sha256": "15ADCD6C14D9013EECF07DBC7B20886FBF6FCE1E24FB72B053455C6670A0256D"
+    },
+    {
+      "Path": "docs/database/e2e/91-DisableMigratorLogin.sql",
+      "Sha256": "BABD73565DF8E9281E3FA465BA4372B843E0070CEF205152BA95AA0F440412CD"
+    },
+    {
+      "Path": "docs/database/e2e/DraftRoomFixture.json",
+      "Sha256": "4A01EA1491B8B52B4241DAB3B2E81BAED935DCB53E095B50B38EC3253481FBD0"
+    },
+    {
+      "Path": "docs/development/MapPersistence7B2DExecutionPlan.md",
+      "Sha256": "C4E7178309084E3890890A25DAAB765F5067F10124D843D48281A58CA4132ABE"
+    },
+    {
+      "Path": "scripts/mapdraft-e2e/E2EPlan.psm1",
+      "Sha256": "53C2A13EA0AEDE4C55A6F82E9350CCFCA3433073C87576C4999DB426CAB4D619"
+    },
+    {
+      "Path": "scripts/mapdraft-e2e/Export-ReviewedMigrations.ps1",
+      "Sha256": "4C58667E4A9FD5F05870164208D2DDE0C12BA312AF4AB5A214F1E32E8BBE9243"
+    },
+    {
+      "Path": "scripts/mapdraft-e2e/Invoke-ApprovedE2EStep.ps1",
+      "Sha256": "EFC679F3E7F9183C25C900314F1359B1F323D4C9F39EC606C9337281C609E309"
+    },
+    {
+      "Path": "scripts/mapdraft-e2e/Prepare-ApprovedE2EStorage.ps1",
+      "Sha256": "1B197718B28A824DB989F5AB0E6F7FF79C511C963F1E1D234892DA593F7C0883"
+    },
+    {
+      "Path": "scripts/mapdraft-e2e/Set-ApprovedE2EEnvironment.ps1",
+      "Sha256": "A5F5D2065F5491437E17301170C291E2E92F04253D54E68BE701CC5B85757220"
+    },
+    {
+      "Path": "scripts/mapdraft-e2e/Test-ExecutionPlanOffline.ps1",
+      "Sha256": "0C079505E7B53C7718821AB9C3509AB2BC8CDD55456DEBF16BAB8A90C82E17CD"
+    },
+    {
+      "Path": "scripts/mapdraft-e2e/Update-PlanReviewManifest.ps1",
+      "Sha256": "8BB518EE6D4696CA8A38D8A02BDC2700B13C519BC7FB11C8E7D56407EEC02AB4"
+    },
+    {
+      "Path": "scripts/Start-MapDraftE2E.ps1",
+      "Sha256": "76E528474BF680C6F7D0782B1FEEAA16799A15B39B1A0BE9E90425B8369BF7B0"
+    },
+    {
+      "Path": "WayMark.Api/appsettings.MapDraftE2E.json",
+      "Sha256": "5F0EEC6DA0DC0713039C3BC0C58E1E44251577CF0F5F5E68D9E26366F00F920D"
+    },
+    {
+      "Path": "WayMark.Api/Contracts/MapDraftDtos.cs",
+      "Sha256": "C8DE8BD84DF00BAB7F0F1863A4125006797A22649A817B4BC5DBDCE47C208613"
+    },
+    {
+      "Path": "WayMark.Api/Controllers/AuthController.cs",
+      "Sha256": "670D499256DC3760CD929D8F4ED0E61DBBABA98EF82F66ABAD296F1D252B5E24"
+    },
+    {
+      "Path": "WayMark.Api/Controllers/EmailController.cs",
+      "Sha256": "37DEBA47E4267C4BDF080D0CDF4B7712D472B5A586240F0B0582D46C040454EE"
+    },
+    {
+      "Path": "WayMark.Api/Controllers/MapDraftsController.cs",
+      "Sha256": "3685018319BB4546A0302517BCF7E9CEFF98AFF270FB546E75459362DAC3C0C5"
+    },
+    {
+      "Path": "WayMark.Api/Controllers/MapsController.cs",
+      "Sha256": "E8ADFB8164E57AE214DA5F5FB5FCD5A3C2C36802F26ABDDAB961EE0EE008E22B"
+    },
+    {
+      "Path": "WayMark.Api/Controllers/RoutesController.cs",
+      "Sha256": "B32973331C1C73D53B153CFA036E3D42D62FF55F1954B8F7746B1350EADEB62F"
+    },
+    {
+      "Path": "WayMark.Api/Controllers/WayMarksController.cs",
+      "Sha256": "AD3522A285E669D435D7CB7BE09CFD38670AECECA7C1A64CACFAD9E833E13DD3"
+    },
+    {
+      "Path": "WayMark.Api/Data/AuthDbContext.cs",
+      "Sha256": "13C91D610358B237C9A2A1A3C225BEA41E3508350814F88C6079DCCB60224B08"
+    },
+    {
+      "Path": "WayMark.Api/Data/AuthMigrations/20261010032404_CreateAuthSchema.cs",
+      "Sha256": "E4E47C31BF4028465E9903121486E4D96180D9131BB9A5E8A3A7703FA8E999D9"
+    },
+    {
+      "Path": "WayMark.Api/Data/AuthMigrations/20261010032404_CreateAuthSchema.Designer.cs",
+      "Sha256": "C9F92E44C413DD175F986EC096A509D15DB665CA06796A56ADB753FCF6CF84B6"
+    },
+    {
+      "Path": "WayMark.Api/Data/AuthMigrations/AuthDbContextModelSnapshot.cs",
+      "Sha256": "F3F4D6F565BA71A0F39468790D71A5805486EF9D62C8A65CC0EEAC715BBB825E"
+    },
+    {
+      "Path": "WayMark.Api/Data/E2EDesignTimeFactories.cs",
+      "Sha256": "5BA43DCECA53FE4444049980061A6E55E41BEEF74E0ADEE948D526E2EF9A4BFA"
+    },
+    {
+      "Path": "WayMark.Api/Data/MapDraftModel.cs",
+      "Sha256": "C13B85B6759EB873A999EE5EBC4468E5798C2494836E6C129DF4CED4F61BA1E4"
+    },
+    {
+      "Path": "WayMark.Api/Data/WayMarkDatabaseRegistration.cs",
+      "Sha256": "28B6C87C6082C4DD33F695469880E0C06B827A59832ACC676B30BD64374FDEE4"
+    },
+    {
+      "Path": "WayMark.Api/Data/WayMarkDbContext.cs",
+      "Sha256": "E0AAB19633C9A76DB23B9661AF602BF851A63ABBAC8060C318A2BB247481F9F8"
+    },
+    {
+      "Path": "WayMark.Api/Data/WayMarkMigrations/20261018022742_CreateWayMarkSchema.cs",
+      "Sha256": "9D7182B1FD747B80EC71FA665CB11ABED01F5AE84597656009958323C10ADCB9"
+    },
+    {
+      "Path": "WayMark.Api/Data/WayMarkMigrations/20261018022742_CreateWayMarkSchema.Designer.cs",
+      "Sha256": "7AA325B4325DDE789813FEDDE1823E02F2DD7B6A93150275203944844DD3C3E5"
+    },
+    {
+      "Path": "WayMark.Api/Data/WayMarkMigrations/20261018053754_AddNavigationSchema.cs",
+      "Sha256": "15BA81ACCAEEF322556396BF20DB33E4EF2C5DF9F02AD60EAF888E72D58EB5C4"
+    },
+    {
+      "Path": "WayMark.Api/Data/WayMarkMigrations/20261018053754_AddNavigationSchema.Designer.cs",
+      "Sha256": "D16DE7A5D1FBF33F595537D12FC61D5326161BECA3D7C5BA7A42FF4B5697491E"
+    },
+    {
+      "Path": "WayMark.Api/Data/WayMarkMigrations/20261020094848_AddMapDraftFoundation.cs",
+      "Sha256": "63F3A8E0FA3DD7CB7C0C2287079403F62797E5163716643B7DF15F4615C76712"
+    },
+    {
+      "Path": "WayMark.Api/Data/WayMarkMigrations/20261020094848_AddMapDraftFoundation.Designer.cs",
+      "Sha256": "780ECF82A54772CAA55B097461CD2156BAA0BD0A92755143238BD81ADD9159B2"
+    },
+    {
+      "Path": "WayMark.Api/Data/WayMarkMigrations/20261020101304_BindMapImagesToDrafts.cs",
+      "Sha256": "7CFD08D9F43CE1C877A8886C6289990E4DD7F63DA926D6BF3C45EDF1C2D57C8F"
+    },
+    {
+      "Path": "WayMark.Api/Data/WayMarkMigrations/20261020101304_BindMapImagesToDrafts.Designer.cs",
+      "Sha256": "059F590EADB546BEF6E0E3DABC63402ED7B4B611D86A47206AE9567F845CA51F"
+    },
+    {
+      "Path": "WayMark.Api/Data/WayMarkMigrations/WayMarkDbContextModelSnapshot.cs",
+      "Sha256": "4F6452FC28EE0C2D476CD6E6EFD7862F0826BD29F78ECF92D11DA5B473EC4270"
+    },
+    {
+      "Path": "WayMark.Api/Models/MapDrafts.cs",
+      "Sha256": "E2E29CD652DA7E57FB81BE063C73A478506E6DFBEB9FDBA21DDB2E3784F08F6E"
+    },
+    {
+      "Path": "WayMark.Api/Program.cs",
+      "Sha256": "A825E877CA65996876B6E09E7949A32A43B9BD8E2BA4FF301FD8491611284421"
+    },
+    {
+      "Path": "WayMark.Api/Security/E2EConnectionInterceptor.cs",
+      "Sha256": "C84C1FA68957709BE5E81C2D29B489DC01EA8A900E11DC07880A10BF0241DBD8"
+    },
+    {
+      "Path": "WayMark.Api/Security/E2ESafetyProfile.cs",
+      "Sha256": "8923C5288EEA7821392E810FBA13C03CA7696C6C1E1C49280AB7558D3C229F87"
+    },
+    {
+      "Path": "WayMark.Api/Security/E2EStartupCheck.cs",
+      "Sha256": "2EAF700C53E7BAC7B0165B4BB80C0C26AEEEC7D1F77CD1459BBC9ADCCB47DF90"
+    },
+    {
+      "Path": "WayMark.Api/Security/E2EStorageAccess.cs",
+      "Sha256": "DD3E57DAF932FAC2F92CCE9E5BAC5B50CA2966E2B1FB8C1A82EFEF8D0D2633B9"
+    },
+    {
+      "Path": "WayMark.Api/Security/WayMarkSecurity.cs",
+      "Sha256": "E921ACF057B3C2AD1A34B89FF273B059420CE5BA78C42BA54AC31A462170CBDE"
+    },
+    {
+      "Path": "WayMark.Api/Services/MapDrafts/BoundedImageStream.cs",
+      "Sha256": "9242674A89B548A06F9F3D125423D5682073CC61D55989B889356804B86778A6"
+    },
+    {
+      "Path": "WayMark.Api/Services/MapDrafts/DraftAccess.cs",
+      "Sha256": "1400E19BAB193F2F915A3D489560F5070C43D305DC75A7961BEBC2E2AE9409FF"
+    },
+    {
+      "Path": "WayMark.Api/Services/MapDrafts/ManagedFileMapImageStorage.cs",
+      "Sha256": "1D509E2E7766179874A43CFE7375EF2EDA88802AA0C0DADADCA122B66BE70617"
+    },
+    {
+      "Path": "WayMark.Api/Services/MapDrafts/ManagedMapImageOptions.cs",
+      "Sha256": "BC684072B8BB37E337969BAC654FE3B477D37D0FF2D19C42DA7904D7E3AF4552"
+    },
+    {
+      "Path": "WayMark.Api/Services/MapDrafts/ManagedStoragePaths.cs",
+      "Sha256": "8D1924646E691886805A1BBB5F677920A2F7AFD1ABF53CE68AD148098F08F730"
+    },
+    {
+      "Path": "WayMark.Api/Services/MapDrafts/MapDraftExceptionFilter.cs",
+      "Sha256": "F07353B160176389BB47093319F3CD92F94152DBB8F2308C524B7D9A4A89BE08"
+    },
+    {
+      "Path": "WayMark.Api/Services/MapDrafts/MapDraftRegistration.cs",
+      "Sha256": "4E45C4DD3C82D87003311FFB925AD83E4717976782A82E4E19B9D68533CCFFC0"
+    },
+    {
+      "Path": "WayMark.Api/Services/MapDrafts/MapDraftService.cs",
+      "Sha256": "40B4D1648A4BEECD24DE137D52ACC406FD477CE28C9FA4335E0C91D0A3F66165"
+    },
+    {
+      "Path": "WayMark.Api/Services/MapDrafts/MapDraftValidator.cs",
+      "Sha256": "1925A2E90CD3D5B6A4EF0B06579743C80C260C8320DC9BB6BE76AD1794E2C130"
+    },
+    {
+      "Path": "WayMark.Api/Services/MapDrafts/MapImageCodec.cs",
+      "Sha256": "94F50C8EFF54CD39DC46EC78BD58E707E81F67F0EAEAFD4819B762280198100C"
+    },
+    {
+      "Path": "WayMark.Api/Services/MapDrafts/MapImageStorage.cs",
+      "Sha256": "AFED5DE59ADEBC1AAE191E257B8C555459B604ED14CC7391D58E2B9E10DE5349"
+    },
+    {
+      "Path": "WayMark.Api/WayMark.Api.csproj",
+      "Sha256": "CF857A836B16548CA656A0C0F73E24793072A640A510BDB3628D8BCC44FF210D"
+    }
+  ]
+}

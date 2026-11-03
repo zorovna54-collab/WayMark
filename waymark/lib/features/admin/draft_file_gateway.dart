@@ -1,4 +1,3 @@
-
 import 'package:flutter/foundation.dart';
 
 import 'draft_files.dart' as platform;
@@ -15,7 +14,8 @@ abstract class DraftFileGateway {
 class PlatformDraftFiles implements DraftFileGateway {
   const PlatformDraftFiles();
   @override
-  bool get supported => kIsWeb;
+  bool get supported =>
+      kIsWeb || defaultTargetPlatform == TargetPlatform.android;
   @override
   Future<DraftFile?> pick(String accept, int maxBytes) =>
       platform.pickDraftFile(accept, maxBytes);

@@ -9,6 +9,27 @@ public sealed class SmtpEmailService(
     IOptions<EmailTestOptions> options,
     ILogger<SmtpEmailService> logger) : ISmtpEmailService
 {
+    public async Task SendEmailVerificationAsync(string toEmail, string username, string token, CancellationToken cancellationToken)
+    {
+        if (!_settings.HasDeliverySettings) throw new SmtpEmailException(SmtpEmailFailure.Configuration, "SMTP chưa sẵn sàng.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(SmtpTimeout);
+        using var client = new SmtpClient { Timeout = (int)SmtpTimeout.TotalMilliseconds };
+        try {
+            await client.ConnectAsync(_settings.Host!, _settings.Port, SecureSocketOptions.StartTls, timeout.Token);
+            await client.AuthenticateAsync(_settings.Username!, _settings.AppPassword!, timeout.Token);
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(_settings.SenderName ?? "WayMark", _settings.FromEmail!));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "WayMark - Xác minh email";
+            message.Body = new TextPart("plain") { Text = $"Xin chào {username},\nToken xác minh email cho tài khoản của bạn:\n\n{token}\n\nToken có hạn 30 phút, chỉ dùng một lần. Nếu không yêu cầu, bỏ qua thư này." };
+            await client.SendAsync(message, timeout.Token);
+            await client.DisconnectAsync(true, CancellationToken.None);
+        } catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested) {
+            logger.LogWarning("Email verification delivery unavailable ({FailureType}); no recipient/token logged", ex.GetType().Name);
+            throw new SmtpEmailException(SmtpEmailFailure.Delivery, "Không gửi được email xác minh.");
+        }
+    }
     private static readonly TimeSpan SmtpTimeout = TimeSpan.FromSeconds(15);
     private readonly EmailTestOptions _settings = options.Value;
 
@@ -113,6 +134,116 @@ public sealed class SmtpEmailService(
             }
         }
     }
+
+    public async Task SendPasswordResetEmailAsync(
+        string toEmail,
+        string username,
+        string resetToken,
+        string resetUrl,
+        CancellationToken cancellationToken)
+    {
+        if (!_settings.HasDeliverySettings)
+        {
+            throw new SmtpEmailException(
+                SmtpEmailFailure.Configuration,
+                "Cấu hình SMTP chưa đầy đủ. Hãy thiết lập các giá trị Smtp trong User Secrets.");
+        }
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(SmtpTimeout);
+
+        using var client = new SmtpClient
+        {
+            Timeout = (int)SmtpTimeout.TotalMilliseconds
+        };
+
+        try
+        {
+            await client.ConnectAsync(
+                _settings.Host!,
+                _settings.Port,
+                SecureSocketOptions.StartTls,
+                timeout.Token);
+            await client.AuthenticateAsync(
+                _settings.Username!,
+                _settings.AppPassword!,
+                timeout.Token);
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(
+                _settings.SenderName ?? "WayMark",
+                _settings.FromEmail!));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = "WayMark - Đặt lại mật khẩu";
+
+            var body = new TextPart("plain")
+            {
+                Text = $"Xin chào {username},\n\n" +
+                       $"Bạn đã yêu cầu đặt lại mật khẩu. Sử dụng token sau để đặt lại mật khẩu:\n\n" +
+                       $"{resetToken}\n\n" +
+                       (string.IsNullOrWhiteSpace(resetUrl) ? string.Empty : $"Hoặc mở màn hình đặt lại mật khẩu: {resetUrl}\n\n") +
+                       $"Nếu bạn không yêu cầu, hãy bỏ qua email này."
+            };
+            body.ContentType.Charset = "utf-8";
+            message.Body = body;
+
+            await client.SendAsync(message, timeout.Token);
+        }
+        catch (MailKit.Security.AuthenticationException)
+        {
+            logger.LogWarning("SMTP password reset failed: authentication rejected.");
+            throw new SmtpEmailException(
+                SmtpEmailFailure.Authentication,
+                "Gmail từ chối xác thực SMTP. Hãy kiểm tra địa chỉ Gmail và App Password.");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning("SMTP password reset failed: operation timed out.");
+            throw new SmtpEmailException(
+                SmtpEmailFailure.Timeout,
+                "Kết nối SMTP quá thời gian chờ. Hãy thử lại sau.");
+        }
+        catch (Exception exception) when (
+            exception is MailKit.Net.Smtp.SmtpCommandException or
+            MailKit.Net.Smtp.SmtpProtocolException or
+            MailKit.Security.SslHandshakeException or
+            IOException or
+            System.Net.Sockets.SocketException)
+        {
+            logger.LogWarning(
+                "SMTP password reset failed with transport or delivery error ({FailureType}).",
+                exception.GetType().Name);
+            throw new SmtpEmailException(
+                SmtpEmailFailure.Delivery,
+                "Không thể kết nối hoặc gửi thư qua Gmail SMTP. Hãy kiểm tra mạng và cấu hình SMTP.");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(
+                "SMTP password reset failed unexpectedly ({FailureType}).",
+                exception.GetType().Name);
+            throw new SmtpEmailException(
+                SmtpEmailFailure.Delivery,
+                "Không thể gửi email đặt lại mật khẩu qua Gmail SMTP.");
+        }
+        finally
+        {
+            if (client.IsConnected)
+            {
+                try
+                {
+                    await client.DisconnectAsync(true, CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    logger.LogDebug(
+                        "SMTP disconnect did not complete cleanly ({FailureType}).",
+                        exception.GetType().Name);
+                }
+            }
+        }
+    }
+
 }
 
 public enum SmtpEmailFailure

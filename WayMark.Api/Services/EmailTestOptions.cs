@@ -14,13 +14,16 @@ public sealed class EmailTestOptions
     public string? TestRecipient { get; set; }
 
     public bool HasRequiredSettings =>
+        HasDeliverySettings && IsEmailAddress(TestRecipient);
+
+    // A reset recipient comes from Identity, not the admin smoke-test setting.
+    public bool HasDeliverySettings =>
         !string.IsNullOrWhiteSpace(Host) &&
         Port is > 0 and <= 65535 &&
         UseStartTls &&
         !string.IsNullOrWhiteSpace(Username) &&
         !string.IsNullOrWhiteSpace(AppPassword) &&
-        IsEmailAddress(FromEmail) &&
-        IsEmailAddress(TestRecipient);
+        IsEmailAddress(FromEmail);
 
     private static bool IsEmailAddress(string? address) =>
         !string.IsNullOrWhiteSpace(address) &&

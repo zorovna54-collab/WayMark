@@ -1,0 +1,10 @@
+{
+  "description": "Navigate complex environments effortlessly with QR-based WayMark, providing precise routes through landmarks like malls and hospitals for users seeking clarity.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

@@ -5,6 +5,7 @@ import '../../services/waymark_api_service.dart';
 import '../../models/route_models.dart';
 import '../scanner/scanner_page.dart';
 import '../route/route_preview_page.dart';
+import '../route/demo_floor_plan.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key, this.start, this.api, this.initialQuery = ''});
@@ -19,12 +20,14 @@ class SearchPage extends StatefulWidget {
 class _SearchPageState extends State<SearchPage> {
   final TextEditingController _searchController = TextEditingController();
   List<WayMark> _wayMarks = const [];
+  final _rooms = <String, VerifiedDemoRoom>{};
   bool _isLoading = true;
   Object? _loadError;
   late final WayMarkApiService _api = widget.api ?? WayMarkApiService();
   late WayMarkMapLocation? _start = widget.start;
   bool _accessibleOnly = false;
   bool _openingRoute = false;
+  int _loadGeneration = 0;
 
   List<WayMark> get _filteredWayMarks {
     final query = _searchController.text.trim().toLowerCase();
@@ -33,7 +36,8 @@ class _SearchPageState extends State<SearchPage> {
         .where((wayMark) {
           return wayMark.name.toLowerCase().contains(query) ||
               wayMark.location.toLowerCase().contains(query) ||
-              wayMark.wayMarkCode.toLowerCase().contains(query);
+              wayMark.wayMarkCode.toLowerCase().contains(query) ||
+              (_rooms[wayMark.wayMarkCode]?.room.matches(query) ?? false);
         })
         .toList(growable: false);
   }
@@ -47,19 +51,40 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Future<void> _loadWayMarks() async {
+    final generation = ++_loadGeneration;
     setState(() {
       _isLoading = true;
       _loadError = null;
+      _rooms.clear();
     });
     try {
       final wayMarks = await _api.getWayMarks();
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _wayMarks = wayMarks;
         _isLoading = false;
       });
+      // Optional demo labels never replace the real API listing on failure.
+      // Resolve WayMark -> actual Entrance ID + matching API graph before using
+      // a searchable room alias. A Destination node is not silently a doorway.
+      try {
+        final bundle = await DemoHospitalMap.load();
+        for (final room in bundle.rooms) {
+          if (!wayMarks.any((w) => w.wayMarkCode == room.wayMarkCode)) continue;
+          final location = await _api.getMapLocation(room.wayMarkCode);
+          if (location.node == null) continue;
+          final graph = await _api.getFloorGraph(location.node!.floorId);
+          final verified = bundle.verifyRoom(room, location, graph);
+          if (!mounted || generation != _loadGeneration) return;
+          if (verified != null) {
+            setState(() => _rooms[room.wayMarkCode] = verified);
+          }
+        }
+      } on Exception {
+        // No verified room mapping: keep actual WayMark search available.
+      }
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _loadError = error;
         _isLoading = false;
@@ -102,6 +127,7 @@ class _SearchPageState extends State<SearchPage> {
             destinationWayMarkCode: wayMark.wayMarkCode,
             accessibleOnly: _accessibleOnly,
             api: _api,
+            destinationRoom: _rooms[wayMark.wayMarkCode],
           ),
         ),
       );
@@ -151,7 +177,7 @@ class _SearchPageState extends State<SearchPage> {
                         autofocus: true,
                         textInputAction: TextInputAction.search,
                         decoration: const InputDecoration(
-                          hintText: 'Tìm theo tên, vị trí hoặc mã WayMark',
+                          hintText: 'Tìm phòng, số phòng hoặc WayMark',
                           prefixIcon: Icon(
                             Icons.search,
                             color: AppColors.textMuted,
@@ -274,7 +300,7 @@ class _SearchPageState extends State<SearchPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  wayMark.name,
+                  _rooms[wayMark.wayMarkCode]?.room.name ?? wayMark.name,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -285,7 +311,9 @@ class _SearchPageState extends State<SearchPage> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  wayMark.location,
+                  _rooms.containsKey(wayMark.wayMarkCode)
+                      ? 'Demo Map • Tầng G • tuyến kết thúc tại cửa Entrance'
+                      : wayMark.location,
                   style: const TextStyle(
                     fontSize: 12,
                     color: AppColors.textSecondary,

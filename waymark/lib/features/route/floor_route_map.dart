@@ -7,6 +7,11 @@ import '../../models/route_models.dart';
 import '../../services/waymark_api_service.dart';
 import 'floor_route_geometry.dart';
 import 'floor_plan_canvas.dart';
+import 'map_paint_scale.dart';
+import 'demo_floor_plan.dart';
+import '../navigation/local_map_navigation.dart';
+import '../indoor_tracking/indoor_tracking_controller.dart';
+import '../indoor_tracking/blue_dot_overlay.dart';
 
 class FloorRouteMap extends StatefulWidget {
   const FloorRouteMap({
@@ -17,6 +22,9 @@ class FloorRouteMap extends StatefulWidget {
     this.activeNodeStatus,
     this.verifiedNodeIndex,
     this.activeIsManual = false,
+    this.compact = false,
+    this.localMap,
+    this.tracking,
   });
   final WayMarkRoute route;
   final WayMarkApiService api;
@@ -26,6 +34,9 @@ class FloorRouteMap extends StatefulWidget {
   final String? activeNodeStatus;
   final int? verifiedNodeIndex;
   final bool activeIsManual;
+  final bool compact;
+  final LocalMapNavigation? localMap;
+  final IndoorTrackingController? tracking;
 
   @override
   State<FloorRouteMap> createState() => _FloorRouteMapState();
@@ -36,6 +47,28 @@ class _FloorRouteMapState extends State<FloorRouteMap>
   @override
   bool get wantKeepAlive => true;
   final _graphs = <int, Future<FloorMapData>>{};
+  final _demoPlans = <int, DemoFloorPlan>{};
+  Future<FloorMapData> _loadGraph(int id) async {
+    if (widget.localMap case final map?) {
+      if (!map.owns(widget.route)) {
+        throw const FormatException('Tầng không thuộc bản đồ cục bộ.');
+      }
+      return map.graphFor(id);
+    }
+    final route = widget.route;
+    final graph = await widget.api.getFloorGraph(id);
+    try {
+      final bundle = await DemoHospitalMap.load();
+      final plan = bundle.match(graph, route: route);
+      if (mounted && identical(route, widget.route) && plan != null) {
+        _demoPlans[id] = plan;
+      }
+    } on Exception {
+      // A missing demo asset must not replace or block the actual API graph.
+    }
+    return graph;
+  }
+
   int? _selectedFloorId;
   int? get _activeFloorId {
     final index = widget.activeNodeIndex;
@@ -47,8 +80,11 @@ class _FloorRouteMapState extends State<FloorRouteMap>
   @override
   void didUpdateWidget(covariant FloorRouteMap oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.route != widget.route || oldWidget.api != widget.api) {
+    if (oldWidget.route != widget.route ||
+        oldWidget.api != widget.api ||
+        oldWidget.localMap != widget.localMap) {
       _graphs.clear();
+      _demoPlans.clear();
       _selectedFloorId = null;
     } else if (oldWidget.activeNodeIndex != widget.activeNodeIndex) {
       _selectedFloorId = _activeFloorId;
@@ -65,22 +101,28 @@ class _FloorRouteMapState extends State<FloorRouteMap>
     final visits = floorVisits(route);
     final floors = <int, RouteFloor>{
       for (final node in route.nodes) node.floor.id: node.floor,
+      if (widget.tracking != null && widget.localMap != null)
+        for (final floor in widget.tracking!.graph.floors.values)
+          floor.uiId: widget.localMap!.graphFor(floor.uiId).floor,
     };
     final selected = _selectedFloorId ?? _activeFloorId ?? floors.keys.first;
     final floor = floors[selected]!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
-          'Bản đồ tuyến theo tầng',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: AppColors.primary,
+        if (!widget.compact)
+          const Text(
+            'Bản đồ tuyến theo tầng',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppColors.primary,
+            ),
           ),
-        ),
         const SizedBox(height: 8),
         Text(
-          'Tòa (ID ${floor.buildingId}) / ${floor.name}',
+          widget.compact
+              ? floor.name
+              : 'Tòa (ID ${floor.buildingId}) / ${floor.name}',
           style: const TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
@@ -88,10 +130,14 @@ class _FloorRouteMapState extends State<FloorRouteMap>
           ),
         ),
         const SizedBox(height: 8),
-        Text(
-          'Thứ tự qua tầng: ${visits.map((visit) => visit.floor.name).join(' → ')}',
-          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-        ),
+        if (!widget.compact)
+          Text(
+            'Thứ tự qua tầng: ${visits.map((visit) => visit.floor.name).join(' → ')}',
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
         if (_activeFloorId != null) ...[
           Text(
             widget.activeNodeStatus ??
@@ -110,10 +156,7 @@ class _FloorRouteMapState extends State<FloorRouteMap>
           const Text('Thiếu thông tin tầng hợp lệ để tải bản đồ.')
         else
           FutureBuilder<FloorMapData>(
-            future: _graphs.putIfAbsent(
-              selected,
-              () => widget.api.getFloorGraph(selected),
-            ),
+            future: _graphs.putIfAbsent(selected, () => _loadGraph(selected)),
             builder: (context, snapshot) {
               if (snapshot.connectionState != ConnectionState.done) {
                 return const SizedBox(
@@ -212,6 +255,9 @@ class _FloorRouteMapState extends State<FloorRouteMap>
         imageUri.host.isNotEmpty &&
         imageUri.userInfo.isEmpty &&
         (imageUri.scheme == 'http' || imageUri.scheme == 'https');
+    final demo = hasImage || widget.localMap != null
+        ? null
+        : _demoPlans[graph.floor.id];
     return LayoutBuilder(
       builder: (context, constraints) => SizedBox(
         height: (constraints.maxWidth * 0.9).clamp(260.0, 440.0),
@@ -225,16 +271,38 @@ class _FloorRouteMapState extends State<FloorRouteMap>
             children: [
               Positioned.fill(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
                   child: Semantics(
                     label:
-                        'Tuyến trên ${graph.floor.name}, ${geometry.stops.length} node, ${geometry.segments.length} cạnh cùng tầng',
+                        'Tuyến trên ${graph.floor.name}, ${geometry.stops.length} node, ${geometry.segments.length} cạnh cùng tầng. ${demo?.rooms.map((r) => r.name).join(', ') ?? ''}',
                     child: FloorPlanCanvas(
                       key: ValueKey('floor-plan-${graph.floor.id}'),
-                      image: hasImage
+                      sceneOverlayBuilder: widget.tracking == null
+                          ? null
+                          : (scale) => BlueDotOverlay(
+                              controller: widget.tracking!,
+                              floorKey:
+                                  widget.tracking!.graph.floorKeyForUi(
+                                    graph.floor.id,
+                                  ) ??
+                                  '',
+                              viewScale: scale,
+                            ),
+                      image: widget.localMap != null
+                          ? widget.localMap!.imageFor(graph.floor.id)
+                          : hasImage
                           ? NetworkImage(imageUri.toString())
-                          : null,
-                      painter: FloorRoutePainter(
+                          : demo == null
+                          ? null
+                          : AssetImage(demo.asset),
+                      painterBuilder: (scale) => FloorRoutePainter(
+                        viewScale: scale,
+                        roomLabels:
+                            widget.localMap?.routeRoomLabels(
+                              route,
+                              graph.floor.id,
+                            ) ??
+                            const [],
                         geometry: geometry,
                         lastRouteIndex: route.nodes.length - 1,
                         activeNodeIndex: widget.activeNodeIndex,
@@ -245,6 +313,26 @@ class _FloorRouteMapState extends State<FloorRouteMap>
                   ),
                 ),
               ),
+              if (demo != null)
+                Positioned(
+                  left: 12,
+                  top: 8,
+                  child: Container(
+                    key: const Key('verified-demo-map'),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'DEMO MAP • graph đã đối chiếu',
+                      style: TextStyle(color: Colors.white, fontSize: 10),
+                    ),
+                  ),
+                ),
               Positioned(
                 top: 12,
                 right: 12,
@@ -315,16 +403,36 @@ class FloorRoutePainter extends CustomPainter {
     this.activeNodeIndex,
     this.verifiedNodeIndex,
     this.activeIsManual = false,
+    this.roomLabels = const [],
+    this.viewScale = 1,
   });
   final FloorRouteGeometry geometry;
   final int lastRouteIndex;
   final int? activeNodeIndex;
   final int? verifiedNodeIndex;
   final bool activeIsManual;
+  final List<LocalRoom> roomLabels;
+  final double viewScale;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty || !size.width.isFinite || !size.height.isFinite) return;
+    size = beginScreenSizedMapPaint(canvas, size, viewScale);
+    for (final room in roomLabels) {
+      final text = TextPainter(
+        text: TextSpan(
+          text: room.name,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: AppColors.primary,
+            backgroundColor: Color(0xeeffffff),
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: 140);
+      text.paint(canvas, Offset(room.x * size.width, room.y * size.height));
+    }
     Offset point(MapRouteStop stop) =>
         normalizedMapPoint(stop.coordinate.x, stop.coordinate.y, size)!;
     final linePaint = Paint()
@@ -497,10 +605,13 @@ class FloorRoutePainter extends CustomPainter {
         label.paint(canvas, at + const Offset(11, -23));
       }
     }
+    canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant FloorRoutePainter oldDelegate) =>
+      oldDelegate.viewScale != viewScale ||
+      oldDelegate.roomLabels != roomLabels ||
       oldDelegate.geometry != geometry ||
       oldDelegate.lastRouteIndex != lastRouteIndex ||
       oldDelegate.activeNodeIndex != activeNodeIndex ||

@@ -3,19 +3,23 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using WayMark.Api.Contracts;
 using WayMark.Api.Data;
+using WayMark.Api.Services.MapDrafts;
 
 namespace WayMark.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class MapsController(WayMarkDbContext dbContext) : ControllerBase
+public class MapsController(WayMarkDbContext dbContext, PersonalMapAccess? personal = null) : ControllerBase
 {
+    private async Task<int[]> PersonalSites(CancellationToken ct) => personal is null ? [] : await personal.SitesAsync(User, ct);
     [HttpGet("sites")]
     public async Task<ActionResult<IReadOnlyList<SiteDto>>> GetSites(
         CancellationToken cancellationToken)
     {
+        var owned = await PersonalSites(cancellationToken);
         var sites = await dbContext.Sites.AsNoTracking()
+            .Where(s => !s.Code.StartsWith(PersonalMapAccess.Prefix) || owned.Contains(s.Id))
             .OrderBy(site => site.Code).ThenBy(site => site.Id)
             .Select(site => new SiteDto(site.Id, site.Name, site.Code, site.Address))
             .ToListAsync(cancellationToken);
@@ -26,8 +30,9 @@ public class MapsController(WayMarkDbContext dbContext) : ControllerBase
     public async Task<ActionResult<IReadOnlyList<BuildingDto>>> GetBuildings(
         int siteId, CancellationToken cancellationToken)
     {
+        var owned = await PersonalSites(cancellationToken);
         if (!await dbContext.Sites.AsNoTracking()
-                .AnyAsync(site => site.Id == siteId, cancellationToken))
+                .AnyAsync(site => site.Id == siteId && (!site.Code.StartsWith(PersonalMapAccess.Prefix) || owned.Contains(site.Id)), cancellationToken))
         {
             return NotFound(new ProblemDetails { Status = 404, Title = "Site not found" });
         }
@@ -45,8 +50,10 @@ public class MapsController(WayMarkDbContext dbContext) : ControllerBase
     public async Task<ActionResult<IReadOnlyList<FloorDto>>> GetFloors(
         int buildingId, CancellationToken cancellationToken)
     {
+        var owned = await PersonalSites(cancellationToken);
         if (!await dbContext.Buildings.AsNoTracking()
-                .AnyAsync(building => building.Id == buildingId, cancellationToken))
+                .AnyAsync(building => building.Id == buildingId && dbContext.Sites.Any(s => s.Id == building.SiteId
+                    && (!s.Code.StartsWith(PersonalMapAccess.Prefix) || owned.Contains(s.Id))), cancellationToken))
         {
             return NotFound(new ProblemDetails { Status = 404, Title = "Building not found" });
         }
@@ -64,8 +71,10 @@ public class MapsController(WayMarkDbContext dbContext) : ControllerBase
     public async Task<ActionResult<FloorGraphDto>> GetFloorGraph(
         int floorId, CancellationToken cancellationToken)
     {
+        var owned = await PersonalSites(cancellationToken);
         var floor = await dbContext.Floors.AsNoTracking()
-            .Where(item => item.Id == floorId)
+            .Where(item => item.Id == floorId && dbContext.Buildings.Any(b => b.Id == item.BuildingId
+                && dbContext.Sites.Any(s => s.Id == b.SiteId && (!s.Code.StartsWith(PersonalMapAccess.Prefix) || owned.Contains(s.Id)))))
             .Select(item => new FloorDto(item.Id, item.BuildingId, item.Name,
                 item.FloorCode, item.SortOrder, item.FloorPlanImageUrl))
             .SingleOrDefaultAsync(cancellationToken);

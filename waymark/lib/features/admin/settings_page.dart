@@ -1,23 +1,126 @@
 import 'package:flutter/material.dart';
 
+import '../auth/workflow_recovery.dart';
+
 import '../../core/theme/app_colors.dart';
-import '../ai/lm_studio_test_page.dart';
+import '../../models/account_profile.dart';
+import '../../services/auth_api_service.dart';
+import '../../services/auth_session.dart';
+import '../../services/published_map_api_service.dart';
+import '../auth/login/login_page.dart';
+import '../auth/register/register_page.dart';
+import '../auth/account_security_page.dart';
+import '../auth/logout.dart';
 import '../home/home_page.dart';
-import 'admin_page_shell.dart';
+import '../profile/profile_page.dart';
+import '../profile/account_widgets.dart';
+import '../scanner/public_map_entry_page.dart';
+import 'create_map_page.dart';
+import 'my_maps_page.dart';
 
 class AdminSettingsPage extends StatefulWidget {
-  const AdminSettingsPage({super.key});
+  const AdminSettingsPage({super.key, this.api});
+  final AuthApiService? api;
   @override
   State<AdminSettingsPage> createState() => _AdminSettingsPageState();
 }
 
 class _AdminSettingsPageState extends State<AdminSettingsPage> {
-  final _scaffoldKey = GlobalKey<ScaffoldState>();
-  void _goBack() {
-    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
-      _scaffoldKey.currentState!.closeDrawer();
+  late final _api = widget.api ?? AuthApiService();
+  AccountProfile? _profile;
+  String? _error, _connection;
+  bool _loading = false, _checking = false;
+  @override
+  void initState() {
+    super.initState();
+    AuthSession.changes.addListener(_sessionChanged);
+    _load();
+  }
+
+  void _sessionChanged() {
+    if (!mounted) return;
+    setState(() {
+      _profile = null;
+      _error = null;
+      _connection = null;
+    });
+    _load();
+  }
+
+  @override
+  void dispose() {
+    AuthSession.changes.removeListener(_sessionChanged);
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final revision = AuthSession.revision;
+    bool current() => mounted && revision == AuthSession.revision;
+    if (AuthSession.accessToken == null) {
+      if (mounted) {
+        setState(() {
+          _profile = null;
+          _loading = false;
+          _error = null;
+        });
+      }
       return;
     }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final profile = await _api.getProfile();
+      if (current()) setState(() => _profile = profile);
+    } catch (error) {
+      if (current()) {
+        setState(() {
+          _profile = null;
+          _error = error.toString();
+        });
+      }
+    } finally {
+      if (current()) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _open(Widget page) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(builder: (_) => page),
+    );
+    if (mounted) await _load();
+  }
+
+  Future<void> _create() async {
+    if (_profile == null) await _load();
+    if (!mounted || _profile == null) return;
+    await _open(
+      CreateMapPage(
+        profile: _profile!,
+        auth: _api,
+        maps: PublishedMapApiService(client: _api.client),
+      ),
+    );
+  }
+
+  Future<void> _check() async {
+    setState(() {
+      _checking = true;
+      _connection = null;
+    });
+    try {
+      final result = await _api.checkConnection();
+      if (mounted) setState(() => _connection = result);
+    } catch (error) {
+      if (mounted) setState(() => _connection = error.toString());
+    } finally {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  void _goBack() {
     final navigator = Navigator.of(context);
     if (navigator.canPop()) {
       navigator.pop();
@@ -28,154 +131,221 @@ class _AdminSettingsPageState extends State<AdminSettingsPage> {
     }
   }
 
-  bool _elevator = true;
-  bool _ar = true;
+  Widget _tile(
+    IconData icon,
+    String title,
+    String subtitle,
+    VoidCallback? action, {
+    Key? key,
+  }) => ListTile(
+    key: key,
+    leading: Icon(icon, color: AppColors.primary),
+    title: Text(title),
+    subtitle: Text(subtitle),
+    trailing: action == null ? null : const Icon(Icons.chevron_right),
+    onTap: action,
+  );
   @override
-  Widget build(BuildContext context) => PopScope<Object?>(
-    canPop: Navigator.of(context).canPop(),
-    onPopInvokedWithResult: (didPop, result) {
-      if (!didPop) _goBack();
-    },
-    child: AdminPageShell(
-      scaffoldKey: _scaffoldKey,
-      onBack: _goBack,
-      title: 'Cài đặt hệ thống',
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Cấu hình chung',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 19),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Quản lý các thông số cơ bản của ứng dụng WayMark.',
-                    style: TextStyle(color: AppColors.textSecondary),
-                  ),
-                  const SizedBox(height: 22),
-                  const TextField(
-                    decoration: InputDecoration(
-                      labelText: 'Tên tổ chức / Địa điểm',
-                      hintText: 'Bệnh viện Đa khoa Quốc tế',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const _SettingsDropdown(
-                    label: 'Đơn vị đo lường',
-                    values: ['Mét (m)', 'Feet (ft)'],
-                  ),
-                  const SizedBox(height: 16),
-                  const _SettingsDropdown(
-                    label: 'Ngôn ngữ mặc định',
-                    values: ['Tiếng Việt', 'English'],
-                  ),
-                  const SizedBox(height: 16),
-                  const _SettingsDropdown(
-                    label: 'Tự động xóa lịch sử điều hướng',
-                    values: ['Sau 30 ngày', 'Sau 60 ngày', 'Không bao giờ'],
+  Widget build(BuildContext context) {
+    final loggedIn = AuthSession.accessToken != null;
+    final profile = _profile;
+    final maps = PublishedMapApiService(client: _api.client);
+    return PopScope<Object?>(
+      canPop: Navigator.of(context).canPop(),
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _goBack();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          title: const Text('Cài đặt'),
+          leading: IconButton(
+            tooltip: 'Quay lại',
+            onPressed: _goBack,
+            icon: const Icon(Icons.arrow_back),
+          ),
+          actions: [
+            IconButton(
+              tooltip: 'Làm mới quyền',
+              onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        body: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680),
+            child: ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                AccountHeader(
+                  name:
+                      profile?.displayName ??
+                      (loggedIn ? 'Tài khoản WayMark' : 'Chào bạn'),
+                  subtitle: loggedIn
+                      ? 'Thông tin tài khoản và quyền hiện tại'
+                      : 'Quét QR để tìm đường, không cần tài khoản',
+                ),
+                if (_loading) const LinearProgressIndicator(),
+                const SessionRecoveryButton(),
+                if (_error != null) ...[
+                  Text(_error!, style: const TextStyle(color: Colors.red)),
+                  TextButton(
+                    onPressed: _loading ? null : _load,
+                    child: const Text('Tải lại tài khoản'),
                   ),
                 ],
-              ),
-            ),
-          ),
-          Card(
-            child: ListTile(
-              leading: const Icon(
-                Icons.smart_toy_outlined,
-                color: AppColors.accent,
-              ),
-              title: const Text('Kiểm thử LM Studio AI'),
-              subtitle: const Text(
-                'Kiểm tra kết nối local và gửi câu hỏi thử nghiệm.',
-              ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push<void>(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => const LmStudioTestPage(),
+                AccountSection(
+                  title: 'Tài khoản',
+                  icon: Icons.person_outline,
+                  children: [
+                    if (loggedIn) ...[
+                      _tile(
+                        Icons.account_circle_outlined,
+                        'Hồ sơ tài khoản',
+                        profile?.email ??
+                            'Thông tin, vai trò và trạng thái email',
+                        () => _open(ProfilePage(api: _api)),
+                      ),
+                      _tile(
+                        Icons.lock_outline,
+                        'Bảo mật tài khoản',
+                        'Đổi mật khẩu của tài khoản hiện tại',
+                        () => _open(AccountSecurityPage(api: _api)),
+                      ),
+                    ] else ...[
+                      _tile(
+                        Icons.login,
+                        'Đăng nhập',
+                        'Quản lý thông tin và bản đồ riêng',
+                        () => _open(const LoginPage()),
+                      ),
+                      _tile(
+                        Icons.person_add_outlined,
+                        'Đăng ký',
+                        'Tạo tài khoản WayMark',
+                        () => _open(const RegisterPage()),
+                      ),
+                    ],
+                  ],
                 ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Cấu hình điều hướng (Routing Engine)',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                if (loggedIn)
+                  AccountSection(
+                    title: 'Bản đồ của bạn',
+                    icon: Icons.map_outlined,
+                    children: [
+                      _tile(
+                        Icons.add_location_alt_outlined,
+                        'Bắt đầu tạo bản đồ',
+                        'Tạo bản nháp trong không gian riêng của bạn',
+                        _loading ? null : _create,
+                        key: const Key('settings-create-map'),
+                      ),
+                      if (profile?.canManageMaps == true)
+                        _tile(
+                          Icons.folder_open_outlined,
+                          'Bản đồ của tôi / Map Builder',
+                          'Bản nháp, phiên bản đã xuất bản và QR được cấp quyền',
+                          () => _open(MyMapsPage(api: maps)),
+                          key: const Key('settings-my-maps'),
+                        ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Thông số thuật toán tìm đường.',
-                    style: TextStyle(color: AppColors.textSecondary),
+                if (profile?.canManageFacility == true)
+                  AccountSection(
+                    title: 'Cơ sở được ủy quyền',
+                    icon: Icons.domain_outlined,
+                    children: [
+                      for (final site in profile!.managedSites)
+                        ListTile(
+                          leading: const Icon(Icons.domain),
+                          title: Text(site['name'] as String),
+                          subtitle: const Text(
+                            'Bạn đang được cấp quyền tại cơ sở này',
+                          ),
+                        ),
+                      _tile(
+                        Icons.map_outlined,
+                        'Bản đồ được ủy quyền',
+                        'Chỉ hiển thị bản đồ bạn được phép quản lý',
+                        () => _open(MyMapsPage(api: maps)),
+                      ),
+                      const ListTile(
+                        title: Text('Quản lý cộng tác viên'),
+                        subtitle: Text(
+                          'Chưa khả dụng — chưa có API cấp quyền tương ứng',
+                        ),
+                        enabled: false,
+                      ),
+                    ],
                   ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Ưu tiên tuyến đường có thang máy'),
-                    subtitle: const Text(
-                      'Dành cho người dùng xe lăn hoặc hạn chế vận động.',
+                if (profile?.isSystemAdmin == true)
+                  const AccountSection(
+                    title: 'Quản trị hệ thống',
+                    icon: Icons.admin_panel_settings_outlined,
+                    children: [
+                      ListTile(
+                        title: Text('Quản trị tài khoản và phân quyền'),
+                        subtitle: Text('Chưa khả dụng'),
+                        enabled: false,
+                      ),
+                    ],
+                  ),
+                AccountSection(
+                  title: 'Ứng dụng và hỗ trợ',
+                  icon: Icons.help_outline,
+                  children: [
+                    _tile(
+                      Icons.qr_code_scanner,
+                      'Quét QR / Bản đồ công khai',
+                      'Mở bản đồ đã xuất bản và tìm đường',
+                      () => _open(const PublicMapEntryPage()),
                     ),
-                    value: _elevator,
-                    onChanged: (value) => setState(() => _elevator = value),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Hiển thị đường đi AR'),
-                    subtitle: const Text(
-                      'Cho phép người dùng bật chế độ Camera.',
+                    ListTile(
+                      title: const Text('Kết nối API'),
+                      subtitle: Text(AuthApiService.baseUrl),
+                      trailing: _checking
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(),
+                            )
+                          : IconButton(
+                              key: const Key('check-api'),
+                              tooltip: 'Kiểm tra kết nối',
+                              onPressed: _check,
+                              icon: const Icon(Icons.refresh),
+                            ),
                     ),
-                    value: _ar,
-                    onChanged: (value) => setState(() => _ar = value),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton.icon(
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Cấu hình demo — chưa lưu dữ liệu.'),
+                    if (_connection != null)
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(_connection!, key: const Key('api-status')),
+                      ),
+                    const AboutListTile(
+                      applicationName: 'WayMark',
+                      applicationVersion: String.fromEnvironment(
+                        'WAYMARK_APP_VERSION',
+                        defaultValue: '1.0.0+1',
+                      ),
+                      icon: Icon(Icons.info_outline),
+                      applicationLegalese: 'Phiên bản phát triển — bản đồ phải được xác minh tại thực địa.',
+                    ),
+                  ],
                 ),
-              ),
-              icon: const Icon(Icons.save_outlined),
-              label: const Text('Lưu cấu hình'),
+                if (loggedIn)
+                  OutlinedButton.icon(
+                    key: const Key('logout'),
+                    onPressed: () => confirmLogout(context),
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Đăng xuất'),
+                  ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
-    ),
-  );
-}
-
-class _SettingsDropdown extends StatelessWidget {
-  const _SettingsDropdown({required this.label, required this.values});
-  final String label;
-  final List<String> values;
-  @override
-  Widget build(BuildContext context) => DropdownButtonFormField<String>(
-    initialValue: values.first,
-    decoration: InputDecoration(
-      labelText: label,
-      border: const OutlineInputBorder(),
-    ),
-    items: [
-      for (final value in values)
-        DropdownMenuItem(value: value, child: Text(value)),
-    ],
-    onChanged: (_) {},
-  );
+    );
+  }
 }

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "imageAssetId": null,
+  "nodes": [
+    { "id": "72d00000-0000-4000-8000-000000000001", "nodeCode": "E2E-DRAFT-J1", "name": "Test corridor", "x": 0.2, "y": 0.5, "nodeType": "Junction" },
+    { "id": "72d00000-0000-4000-8000-000000000002", "nodeCode": "E2E-DRAFT-E1", "name": "Test door A", "x": 0.5, "y": 0.5, "nodeType": "Entrance" },
+    { "id": "72d00000-0000-4000-8000-000000000003", "nodeCode": "E2E-DRAFT-E2", "name": "Test door B", "x": 0.8, "y": 0.5, "nodeType": "Entrance" }
+  ],
+  "edges": [
+    { "id": "72d00000-0000-4000-8000-000000000011", "fromNodeId": "72d00000-0000-4000-8000-000000000001", "toNodeId": "72d00000-0000-4000-8000-000000000002", "edgeType": "Corridor", "distanceMeters": null, "isActive": true, "accessibility": "Unknown", "passageVerification": "Unknown" }
+  ],
+  "places": [
+    { "id": "72d00000-0000-4000-8000-000000000021", "placeCode": "E2E-ROOM-A", "name": "Synthetic E2E room", "label": { "x": 0.65, "y": 0.3 }, "polygon": [], "entranceNodeIds": ["72d00000-0000-4000-8000-000000000002", "72d00000-0000-4000-8000-000000000003"], "accessibility": "Unknown" }
+  ],
+  "transitions": []
+}

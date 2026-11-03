@@ -397,6 +397,64 @@ void main() {
   );
 
   testWidgets(
+    'Edge endpoint dropdowns use readable labels and preserve node codes',
+    (tester) async {
+      await open(tester);
+      final map = painter(tester).draft;
+      final originalNodes = map.nodes;
+      for (var index = 0; index < originalNodes.length; index++) {
+        final node = originalNodes[index];
+        map.putNode(
+          DraftNode(
+            node.code,
+            node.code,
+            node.x,
+            node.y,
+            node.type,
+            displayName: index == 1 ? 'Phòng mổ' : null,
+            searchableAsDestination: node.searchableAsDestination,
+            landmarkNote: node.landmarkNote,
+            sourceNodeId: node.sourceNodeId,
+          ),
+          replace: true,
+        );
+      }
+      map.putNode(
+        const DraftNode(
+          'LOCAL-12345678-1234-1234-1234-123456789012',
+          'LOCAL-12345678-1234-1234-1234-123456789012',
+          .5,
+          .5,
+          'Junction',
+        ),
+      );
+
+      await tester.ensureVisible(find.byKey(const Key('add-draft-edge')));
+      await tester.tap(find.byKey(const Key('add-draft-edge')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('draft-edge-from')));
+      await tester.pumpAndSettle();
+      expect(find.text('N01 · Node'), findsOneWidget);
+      expect(find.text('N02 · Phòng mổ'), findsOneWidget);
+      expect(find.text('N03 · Node'), findsOneWidget);
+      expect(find.textContaining('LOCAL-12345678'), findsNothing);
+      await tester.tap(find.text('N02 · Phòng mổ'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('draft-edge-to')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('N03 · Node'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Thêm cạnh nháp'));
+      await tester.pumpAndSettle();
+
+      expect(map.edges.single.from, originalNodes[1].code);
+      expect(map.edges.single.to, 'LOCAL-12345678-1234-1234-1234-123456789012');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'Canvas selects edges for editing, and node deletion is confirmed',
     (tester) async {
       await open(tester);
@@ -478,6 +536,14 @@ void main() {
     expect(find.byKey(const Key('delete-draft-node')), findsNothing);
     tester.view.physicalSize = const Size(390, 850);
     await tester.pumpAndSettle();
+    // The server toolbar adds height above the workspace. On a narrow screen
+    // the outer ListView can legitimately recycle the offscreen canvas.
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('draft-canvas-1')),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await settleImages(tester);
     expect(tester.takeException(), isNull);
     expect(painter(tester).visibleNodeCodes, hasLength(2));
   });

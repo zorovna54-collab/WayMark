@@ -1,0 +1,11 @@
+{
+  "database": "WayMarkDatabase",
+  "context": "WayMarkDbContext",
+  "history": "__EFMigrationsHistory",
+  "from": "20261018053754_AddNavigationSchema",
+  "to": "20261023063955_AddPublishedMapProjects",
+  "sha256": {
+    "PendingMapMigrations.review.sql": "ae0494a7934a5f196f972755c202e5bb51a80aaef12855bdb7966485325acf57",
+    "PendingMapMigrations.idempotent.review.sql": "9b0ef8402d79810909bcfc39a4f262ac5e55fc226b25ed361e0f8446099fab22"
+  }
+}

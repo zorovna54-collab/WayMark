@@ -30,8 +30,14 @@ class QrRouteMatch {
 
 /// A local checklist, not a position estimate or a backend navigation session.
 class ManualNavigation {
-  ManualNavigation(this.route) : issue = validate(route);
+  ManualNavigation(
+    this.route, {
+    this.localPreview = false,
+    this.allowLocalQr = false,
+  }) : issue = validate(route, localPreview: localPreview);
   final WayMarkRoute route;
+  final bool localPreview;
+  final bool allowLocalQr;
   final String? issue;
   int _nodeIndex = 0;
   bool _completed = false;
@@ -58,7 +64,7 @@ class ManualNavigation {
     final node = location.node;
     final indices = <int>[];
     QrRouteMatchKind kind;
-    if (!isValid) {
+    if (!isValid || (localPreview && !allowLocalQr)) {
       kind = QrRouteMatchKind.invalidRoute;
     } else if (node == null || node.id <= 0 || node.floorId <= 0) {
       kind = QrRouteMatchKind.unmapped;
@@ -176,7 +182,7 @@ class ManualNavigation {
     return true;
   }
 
-  static String? validate(WayMarkRoute route) {
+  static String? validate(WayMarkRoute route, {bool localPreview = false}) {
     if (route.options.wheelchair ||
         (route.options.avoidStairs &&
             route.edges.any((e) => e.edgeType == 'Stairs')) ||
@@ -189,10 +195,11 @@ class ManualNavigation {
         route.totalDistanceMeters < 0) {
       return 'Tuyến thiếu dữ liệu node, cạnh hoặc khoảng cách hợp lệ.';
     }
-    if ([
-          route.start,
-          route.destination,
-        ].any((p) => p.name.trim().isEmpty || p.wayMarkCode.trim().isEmpty) ||
+    if ([route.start, route.destination].any(
+          (p) =>
+              p.name.trim().isEmpty ||
+              (!localPreview && p.wayMarkCode.trim().isEmpty),
+        ) ||
         route.nodes.any(
           (n) =>
               n.id <= 0 ||
@@ -226,6 +233,7 @@ class ManualNavigation {
 }
 
 String navigationEdgeLabel(String type) => switch (type) {
+  'Door' => 'Cửa',
   'Corridor' => 'Hành lang',
   'Elevator' => 'Thang máy',
   'Stairs' => 'Cầu thang',

@@ -14,9 +14,11 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.12" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.12" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.12" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../WayMark.Api/WayMark.Api.csproj" />
+    <ProjectReference Include="../tools/CoreSqlReadiness/CoreSqlReadiness.csproj" />
   </ItemGroup>
 </Project>

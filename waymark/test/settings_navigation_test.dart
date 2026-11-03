@@ -40,7 +40,7 @@ void main() {
         await tester.tap(find.text('Original Home'));
         await tester.pumpAndSettle();
         expect(find.byTooltip('Quay lại'), findsOneWidget);
-        expect(find.byTooltip('Menu quản trị'), findsOneWidget);
+        expect(find.byTooltip('Menu quản trị'), findsNothing);
         if (systemBack) {
           await tester.binding.handlePopRoute();
         } else {
@@ -80,25 +80,21 @@ void main() {
   }
 
   testWidgets(
-    'Standalone Settings system Back closes drawer before returning Home',
+    'Guest Settings has no administration drawer or creator actions',
     (tester) async {
+      AuthSession.clear();
       await tester.pumpWidget(const MaterialApp(home: AdminSettingsPage()));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Menu quản trị'));
-      await tester.pumpAndSettle();
-      expect(
-        tester.state<ScaffoldState>(find.byType(Scaffold)).isDrawerOpen,
-        isTrue,
-      );
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
+      expect(find.byTooltip('Menu quản trị'), findsNothing);
+      expect(find.byKey(const Key('settings-my-maps')), findsNothing);
+      expect(find.byKey(const Key('logout')), findsNothing);
+      expect(find.text('Đăng nhập'), findsOneWidget);
       expect(find.byType(AdminSettingsPage), findsOneWidget);
       expect(
         tester.state<ScaffoldState>(find.byType(Scaffold)).isDrawerOpen,
         isFalse,
       );
       expect(find.byType(HomePage), findsNothing);
-      expectSession();
     },
   );
 }

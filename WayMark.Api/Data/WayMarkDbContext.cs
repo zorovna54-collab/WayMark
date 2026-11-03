@@ -13,6 +13,15 @@ public class WayMarkDbContext(DbContextOptions<WayMarkDbContext> options)
     public DbSet<Floor> Floors => Set<Floor>();
     public DbSet<NavigationNode> NavigationNodes => Set<NavigationNode>();
     public DbSet<NavigationEdge> NavigationEdges => Set<NavigationEdge>();
+    public DbSet<SiteMapMembership> SiteMapMemberships => Set<SiteMapMembership>();
+    public DbSet<FloorMapDraft> FloorMapDrafts => Set<FloorMapDraft>();
+    public DbSet<FloorMapDraftRevision> FloorMapDraftRevisions => Set<FloorMapDraftRevision>();
+    public DbSet<FloorMapImageAsset> FloorMapImageAssets => Set<FloorMapImageAsset>();
+    public DbSet<MapProject> MapProjects => Set<MapProject>();
+    public DbSet<MapPublication> MapPublications => Set<MapPublication>();
+    public DbSet<MapPublicationImage> MapPublicationImages => Set<MapPublicationImage>();
+    public DbSet<MapNodeQr> MapNodeQrs => Set<MapNodeQr>();
+    public DbSet<NavigationHistory> NavigationHistory => Set<NavigationHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -139,5 +148,8 @@ public class WayMarkDbContext(DbContextOptions<WayMarkDbContext> options)
         edge.Property(item => item.IsAccessible).HasDefaultValue(false);
         edge.HasIndex(item => item.FromNodeId);
         edge.HasIndex(item => item.ToNodeId);
+        MapDraftModel.Configure(modelBuilder);
+        PublishedMapModel.Configure(modelBuilder);
+        NavigationHistoryModel.Configure(modelBuilder);
     }
 }

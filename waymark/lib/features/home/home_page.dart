@@ -6,26 +6,32 @@ import '../scanner/scanner_page.dart';
 import '../search/search_page.dart';
 import '../auth/login/login_page.dart';
 import '../admin/settings_page.dart';
-import '../../services/waymark_api_service.dart';
+import '../../services/auth_session.dart';
+import '../../services/navigation_history_service.dart';
+import '../profile/profile_page.dart';
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  static Route<dynamic>? activeRoute;
+  const HomePage({super.key, this.historyService});
+  final NavigationHistoryService? historyService;
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
-  late Future<List<WayMark>> _wayMarksFuture;
-
+  Route<dynamic>? _ownRoute;
   @override
-  void initState() {
-    super.initState();
-    _loadWayMarks();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _ownRoute = ModalRoute.of(context);
+    HomePage.activeRoute = _ownRoute;
   }
 
-  void _loadWayMarks() {
-    _wayMarksFuture = WayMarkApiService().getWayMarks();
+  @override
+  void dispose() {
+    if (identical(HomePage.activeRoute, _ownRoute)) HomePage.activeRoute = null;
+    super.dispose();
   }
 
   @override
@@ -45,47 +51,55 @@ class _HomePageState extends State<HomePage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Xin chào,',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.primary,
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Xin chào,',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primary,
+                          ),
                         ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'Bạn muốn đi đâu hôm nay?',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: AppColors.textSecondary,
+                        SizedBox(height: 4),
+                        Text(
+                          'Bạn muốn đi đâu hôm nay?',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textSecondary,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
 
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute<void>(
-                          builder: (_) => const LoginPage(),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: AppColors.secondary,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: const Icon(
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: AppColors.secondary,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: IconButton(
+                      key: const Key('home-profile'),
+                      tooltip: 'Hồ sơ tài khoản',
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) => AuthSession.accessToken == null
+                                ? const LoginPage()
+                                : const ProfilePage(),
+                          ),
+                        );
+                        if (mounted) setState(() {});
+                      },
+                      icon: const Icon(
                         Icons.person_outline,
+                        semanticLabel: 'Hồ sơ tài khoản',
                         color: AppColors.primary,
                       ),
                     ),
@@ -98,7 +112,8 @@ class _HomePageState extends State<HomePage> {
               // =========================
               // SEARCH
               // =========================
-              GestureDetector(
+              InkWell(
+                key: const Key('home-search'),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -127,11 +142,15 @@ class _HomePageState extends State<HomePage> {
                     children: [
                       Icon(Icons.search, size: 21, color: AppColors.textMuted),
                       SizedBox(width: 12),
-                      Text(
-                        'Tìm kiếm địa điểm, phòng ban...',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: AppColors.textMuted,
+                      Expanded(
+                        child: Text(
+                          'Tìm kiếm địa điểm, phòng ban...',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textMuted,
+                          ),
                         ),
                       ),
                     ],
@@ -312,143 +331,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildRecentWayMarks(BuildContext context) =>
-      FutureBuilder<List<WayMark>>(
-        future: _wayMarksFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 28),
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-          if (snapshot.hasError) {
-            return _wayMarkMessage(
-              icon: Icons.cloud_off_outlined,
-              message:
-                  'Không thể tải địa điểm từ WayMark API.\n${snapshot.error}',
-              action: TextButton.icon(
-                onPressed: () => setState(_loadWayMarks),
-                icon: const Icon(Icons.refresh),
-                label: const Text('Thử lại'),
-              ),
-            );
-          }
-
-          final wayMarks = snapshot.data ?? const <WayMark>[];
-          if (wayMarks.isEmpty) {
-            return _wayMarkMessage(
-              icon: Icons.location_off_outlined,
-              message: 'Chưa có WayMark nào trong hệ thống.',
-            );
-          }
-
-          final recent = wayMarks.take(3).toList(growable: false);
-          return Column(
-            children: [
-              for (var index = 0; index < recent.length; index++) ...[
-                _recentPlace(context, recent[index]),
-                if (index < recent.length - 1) const SizedBox(height: 10),
-              ],
-            ],
-          );
-        },
-      );
-
-  Widget _wayMarkMessage({
-    required IconData icon,
-    required String message,
-    Widget? action,
-  }) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(18),
-    decoration: BoxDecoration(
-      color: AppColors.card,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: AppColors.border),
-    ),
-    child: Column(
-      children: [
-        Icon(icon, color: AppColors.textMuted),
-        const SizedBox(height: 8),
-        Text(
-          message,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: AppColors.textSecondary),
-        ),
-        ?action,
-      ],
-    ),
-  );
-
-  Widget _recentPlace(BuildContext context, WayMark wayMark) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: const BoxDecoration(
-              color: AppColors.secondary,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.location_on_outlined,
-              color: AppColors.primary,
-              size: 20,
-            ),
-          ),
-
-          const SizedBox(width: 14),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  wayMark.name,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  wayMark.location,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          IconButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => SearchPage(initialQuery: wayMark.wayMarkCode),
-                ),
-              );
-            },
-            icon: const Icon(
-              Icons.navigation_outlined,
-              color: AppColors.accent,
-              size: 20,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+      HistoryPage(compact: true, service: widget.historyService);
 
   Widget _navItem({
     required IconData icon,
@@ -458,22 +341,28 @@ class _HomePageState extends State<HomePage> {
   }) {
     final color = active ? AppColors.accent : AppColors.textMuted;
 
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 23, color: color),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: active ? FontWeight.bold : FontWeight.w500,
-              color: color,
+    return Expanded(
+      child: TextButton(
+        style: TextButton.styleFrom(
+          foregroundColor: color,
+          padding: EdgeInsets.zero,
+        ),
+        onPressed: onTap,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 23, color: color),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: active ? FontWeight.bold : FontWeight.w500,
+                color: color,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

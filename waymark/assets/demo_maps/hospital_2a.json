@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "label": "Demo Map — sơ đồ tổng hợp, không phải mặt bằng bệnh viện thật",
+  "source": "docs/database/SeedDemoMap2A.sql (reference only; never executed by Flutter)",
+  "size": 1000,
+  "floors": [
+    {"code":"G","image":"assets/demo_maps/ground.png","nodes":[
+      {"code":"WM-DEMO-2A-G-ENTRY","x":0.10,"y":0.80,"type":"Entrance"},
+      {"code":"WM-DEMO-2A-G-JUNCTION","x":0.40,"y":0.80,"type":"Junction"},
+      {"code":"WM-DEMO-2A-G-LIFT","x":0.40,"y":0.30,"type":"Elevator"},
+      {"code":"WM-DEMO-2A-G-ISOLATED","x":0.90,"y":0.90,"type":"Destination"}
+    ]},
+    {"code":"L1","image":"assets/demo_maps/level1.png","nodes":[
+      {"code":"WM-DEMO-2A-L1-LIFT","x":0.40,"y":0.30,"type":"Elevator"},
+      {"code":"WM-DEMO-2A-L1-JUNCTION","x":0.70,"y":0.30,"type":"Junction"},
+      {"code":"WM-DEMO-2A-L1-DEST","x":0.70,"y":0.70,"type":"Destination"}
+    ]}
+  ],
+  "segments": [
+    {"from":"WM-DEMO-2A-G-ENTRY","to":"WM-DEMO-2A-G-JUNCTION","type":"Corridor","meters":10},
+    {"from":"WM-DEMO-2A-G-JUNCTION","to":"WM-DEMO-2A-G-LIFT","type":"Corridor","meters":8},
+    {"from":"WM-DEMO-2A-G-LIFT","to":"WM-DEMO-2A-L1-LIFT","type":"Elevator","meters":4},
+    {"from":"WM-DEMO-2A-L1-LIFT","to":"WM-DEMO-2A-L1-JUNCTION","type":"Corridor","meters":12},
+    {"from":"WM-DEMO-2A-L1-JUNCTION","to":"WM-DEMO-2A-L1-DEST","type":"Corridor","meters":6}
+  ],
+  "rooms": [
+    {"number":"001","name":"Tiếp nhận • Phòng 001 (Demo)","aliases":["001","phòng 001","phong 001","tiếp nhận","tiep nhan"],
+     "floor":"G","entrance":"WM-DEMO-2A-G-ENTRY","wayMarkCode":"WM-DEMO-2A-START",
+     "bounds":[0.035,0.52,0.27,0.80],"label":[0.15,0.64]}
+  ]
+}

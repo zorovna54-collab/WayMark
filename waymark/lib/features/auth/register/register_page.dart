@@ -12,12 +12,14 @@ class RegisterPage extends StatefulWidget {
 
 class _RegisterPageState extends State<RegisterPage> {
   final _usernameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
 
   @override
   void dispose() {
     _usernameController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -41,7 +43,13 @@ class _RegisterPageState extends State<RegisterPage> {
 
     setState(() => _isLoading = true);
     try {
-      await AuthApiService().register(username: username, password: password);
+      await AuthApiService().register(
+        username: username,
+        password: password,
+        email: _emailController.text.trim().isEmpty
+            ? null
+            : _emailController.text.trim(),
+      );
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (error) {
@@ -135,6 +143,20 @@ class _RegisterPageState extends State<RegisterPage> {
                 label: 'Username',
                 hintText: 'Nhập username (3–50 ký tự)',
                 icon: Icons.person_outline,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Align(alignment: Alignment.centerLeft, child: _label('Email (tuỳ chọn)')),
+            const SizedBox(height: 6),
+            TextField(
+              controller: _emailController,
+              enabled: !_isLoading,
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              decoration: _inputDecoration(
+                label: 'Email',
+                hintText: 'Nhập email để nhận liên kết đặt lại mật khẩu',
+                icon: Icons.email_outlined,
               ),
             ),
             const SizedBox(height: 16),
